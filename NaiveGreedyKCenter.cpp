@@ -39,7 +39,7 @@ void max(double* x, int N, double* max, int* index) {
 }
 
 //Inputs: D (NxN distance matrix)
-//Outputs: centers (1xN "permutation" of centers)
+//Outputs: centers (1xN ordering of centers)
 //rads (1xN matrix of radii needed to cover points at each level)
 void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray *InArray[]) {  
 	///////////////MEX INPUTS/////////////////

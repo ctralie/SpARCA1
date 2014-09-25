@@ -4,7 +4,10 @@ MEXINCLUDE = -I/usr/local/MATLAB/R2013b/extern/include/
 
 #LIBS = -lcudart -lcublas
 
-all: NaiveGreedyKCenter
+all: GreedyKCenter NaiveGreedyKCenter
+
+GreedyKCenter: GreedyKCenter.cpp
+	$(MEX) -g GreedyKCenter.cpp $(LIBS)
 
 NaiveGreedyKCenter: NaiveGreedyKCenter.cpp
 	$(MEX) -g NaiveGreedyKCenter.cpp $(LIBS)

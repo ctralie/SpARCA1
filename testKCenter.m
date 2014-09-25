@@ -1,4 +1,4 @@
-N = 20;
+N = 10;
 X = randn(N, 2);
 D = squareform(pdist(X));
 [centers, rads] = NaiveGreedyKCenter(D);
@@ -17,6 +17,7 @@ for k = 1:N;
        plot(X(C, 1) + R*cos(theta), X(C, 2) + R*sin(theta));
        scatter(X(C, 1), X(C, 2));
     end
+    scatter(X(C, 1), X(C, 2), 100, 'k', 'fill');
     xlim(limX);
     ylim(limY);
     print('-dpng', '-r100', sprintf('%i.png', k));
