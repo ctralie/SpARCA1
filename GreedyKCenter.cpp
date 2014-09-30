@@ -9,6 +9,7 @@
 #include <iostream>
 #include <algorithm>
 #include <list>
+#include <vector>
 #include <assert.h>
 
 using namespace std;
@@ -20,15 +21,22 @@ using namespace std;
 //NOTE: As suggested in the paper, points from friends lists are removed 
 //in a lazy fashion whenever the lists are scanned.
 
-//Return the squared distance between X_i and X_j
-double getSqrDist(double* X, size_t N, size_t D, int i, int j) {
-	double ret = 0.0;
-	double diff = 0.0;
-	for (size_t k = 0; k < D; k++) {
-		diff = D[k*N + i] - D[k*N + j];
-		ret += diff*diff;
+
+//Structure used in the max heap to find the furthest point from the 
+//k centers, which will be used as the next center in the greedy scheme
+struct FPElem {
+	int k; //Associated with this cluster center
+	int index; //Index of the furthest point in the points list
+	double dist; //Distance of the furthest point
+};
+
+//Comparator for this structure
+//Sort in descending order
+bool FPComp(const FPElem& e1, const FPElem& e2) {
+	if (e2.dist < e1.dist) {
+		return true;
 	}
-	return ret;
+	return false;
 }
 
 
@@ -86,23 +94,24 @@ public:
 		delete[] lastServingCenter;
 		delete[] lastLastServingCenter;
 	}
-}
-
-//Structure used in the max heap to find the furthest point from the 
-//k centers, which will be used as the next center in the greedy scheme
-struct FPElem {
-	int k; //Associated with this cluster center
-	int index; //Index of the furthest point in the points list
-	double dist; //Distance of the furthest point
+	
+	void copyCentersRads(double* c, double* r) {
+		for (size_t i = 0; i < N; i++) {
+			c[i] = centers[i].pointIndex;
+			r[i] = centers[i].R;
+		}
+	}
 };
 
-//Comparator for this structure
-//Sort in descending order
-bool FPComp(const FPElem& e1, const FPElem& e2) {
-	if (e2.dist < e1.dist) {
-		return true;
+//Return the squared distance between X_i and X_j
+double getSqrDist(ProblemInstance& inst, int i, int j) {
+	double ret = 0.0;
+	double diff = 0.0;
+	for (size_t k = 0; k < inst.D; k++) {
+		diff = inst.X[k*inst.N + i] - inst.X[k*inst.N + j];
+		ret += diff*diff;
 	}
-	return false;
+	return ret;
 }
 
 //Helper function that updates friends lists and served points of a cluster
@@ -112,21 +121,21 @@ bool FPComp(const FPElem& e1, const FPElem& e2) {
 //center friends list
 void scanCluster(ProblemInstance& inst, int newclusterK, int clusterK) {
 	bool furthestInvalid = false;
-	vector<int>::iterator it = inst.centers[clusterK].points.begin();
+	list<int>::iterator it = inst.centers[clusterK].points.begin();
 	
 	//Step 1: Check all of the points in the cluster center to see if
 	//they are closer to the new center or not
 	while (it != inst.centers[clusterK].points.end()) {
 		int P = *it;
 		//Compute the distance of the point in this cluster to the new k-center
-		double distSqr = getSqrDistance(inst.X, inst.N, inst.D, P, inst.centers[newclusterK].pointIndex);
+		double distSqr = getSqrDist(inst, P, inst.centers[newclusterK].pointIndex);
 		//If the distance is less than the distance to the current cluster center
 		//then this point moves to the new k-center's cluster
 		if (distSqr < inst.alphasSqr[P]) {
 			//Remove this point from the old center
 			it = inst.centers[clusterK].points.erase(it);
 			//Add this point to the new center
-			inst.centers[newClusterK].points.push_back(P);
+			inst.centers[newclusterK].points.push_back(P);
 			inst.alphasSqr[P] = distSqr;
 			if (P == inst.centers[clusterK].furthestP) {
 				//The furthest point in this cluster is no longer
@@ -157,13 +166,14 @@ void scanCluster(ProblemInstance& inst, int newclusterK, int clusterK) {
 	}
 	newElem.dist = sqrt(newElem.dist);
 	inst.FPHeap.push_back(newElem);
-	push_heap(inst.FPHeap);
+	push_heap(inst.FPHeap.begin(), inst.FPHeap.end(), &FPComp);
 }
 
 //This function's job is to get the next cluster center and
 //to update all of the friends lists and clusters of centers
 //that are nearby to the new cluster
-void getNextClusterCenter(ProblemInstance& ins, int k) {
+void getNextClusterCenter(ProblemInstance& inst, int k) {
+	list<int>::iterator it;
 	inst.centers[k].k = k;
 	//Step 1: Extract the maximum value from the heap
 	//and set the next cluster center to be this point
@@ -171,7 +181,8 @@ void getNextClusterCenter(ProblemInstance& ins, int k) {
 	do {
 		//Loop through while outdated furthest points are on the heap
 		pop_heap(inst.FPHeap.begin(), inst.FPHeap.end(), &FPComp);
-		e = inst.FPComp.pop_back();
+		e = inst.FPHeap.back();
+		inst.FPHeap.pop_back();
 	}
 	while (e.index != inst.centers[e.k].furthestP);
 	//Set the next cluster center to be this point
@@ -184,22 +195,67 @@ void getNextClusterCenter(ProblemInstance& ins, int k) {
 	//Step 2: Scan all of the points currently served by the same
 	//cluster as CPk and by clusters in CPk's friends list
 	scanCluster(inst, k, CPk);
-	for (size_t i = 0; i < inst.centers[CPk].friends.size(); i++) {
-		scanCluster(inst, inst.centers[centers[CPk].friends[i]].k)
+	it = inst.centers[CPk].friends.begin();
+	while (it != inst.centers[CPk].friends.end()) {
+		scanCluster(inst, k, inst.centers[*it].k);
+		//Lazy check to see if this friend should be removed from the friends list
+		double friendDist = sqrt(getSqrDist(inst, inst.centers[CPk].pointIndex, inst.centers[*it].pointIndex));
+		if (friendDist > 8*e.dist) {
+			it = inst.centers[CPk].friends.erase(it);
+		}
+		else {
+			it++;
+		}
 	}
 	
 	//Step 3: Construct the friends list of the new center
-	//TODO:
+	int Pk = e.index;//New center point index
+	double Rk = e.dist;//(This is an upper bound of what was said in the paper)
+	CPk = inst.lastLastServingCenter[Pk];//Last serving center
+	it = inst.centers[CPk].friends.begin();
+	//Look at the friends list of the new cluster center 2 phases ago
+	//and add all of the points that are at most 4*Rk from the new center
+	//Also add the new center to those lists
+	while (it != inst.centers[CPk].friends.end()) {
+		KCenter thisFriend = inst.centers[*it];
+		double distCenter = sqrt(getSqrDist(inst, thisFriend.pointIndex, CPk));//Distance to the current cluster center
+		double distNew = sqrt(getSqrDist(inst, thisFriend.pointIndex, Pk));//Distance to new cluster center
+		if (distNew < 4*Rk) {
+			inst.centers[k].friends.push_back(*it);
+			thisFriend.friends.push_back(k);
+		}
+		//Lazy check if this friend should be removed from the friends list
+		if (distCenter > 8*Rk) {
+			it = inst.centers[CPk].friends.erase(it);
+		}
+		else {
+			it++;
+		}		
+	}
 	
 	//Step 4: See if it's time to move onto a new phase
-	//TODO:
 	//(this step takes (O(n)) time and is hit O(log(Spread)) times)
 	if (e.dist <= inst.phaseR/2) {
 		inst.phase++;
 		inst.phaseR = e.dist;
-		
+		//Update lastServingCenter and lastLastServingCenter
+		for (size_t i = 0; i < inst.N; i++) {
+			inst.lastLastServingCenter[i] = inst.lastServingCenter[i];
+		}
+		size_t NTotalCluster = 0;
+		for (int i = 0; i < k; i++) {
+			NTotalCluster += inst.centers[i].points.size() + 1;
+			it = inst.centers[i].points.begin();
+			while (it != inst.centers[i].points.end()) {
+				inst.lastServingCenter[*it] = i;
+				it++;
+			}
+		}
 		//Print error if the sum of the number of points belonging to
 		//each cluster center does not equal N
+		if (NTotalCluster != inst.N) {
+			mexPrintf("Error: NTotalCluster (%i) != N (%i)\n", NTotalCluster, inst.N);
+		}
 	}
 }
 
@@ -235,7 +291,7 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 	//Initialize the points that belong to this cluster to be all points
 	//and in the process figure out which point is the furthest
 	for (size_t i = 0; i < N; i++) {
-		float dSqr = getSqrDist(inst.X, N, D, 0, i);
+		float dSqr = getSqrDist(inst, 0, i);
 		inst.alphasSqr[i] = dSqr;
 		inst.centers[0].points.push_back(i);
 		if (dSqr > inst.centers[0].furthestD) {
@@ -264,11 +320,12 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 		getNextClusterCenter(inst, k);
 	}
 	
-/*	///////////////MEX OUTPUTS/////////////////
+	///////////////MEX OUTPUTS/////////////////
 	//TODO
 	double* centers = new double[N];//Index of the centers chosen in the order they are chosen
 	double* rads = new double[N];//Radius of the balls needed around the (i <= k) center needed
 	//to cover all points at level k
+	inst.copyCentersRads(centers, rads);
 	
 	mwSize outdims[2];
 	//Output 0D homology classes
@@ -283,6 +340,6 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 	
 	///////////////CLEANUP/////////////////
 	delete[] centers;
-	delete[] rads;*/
+	delete[] rads;
 	
 }
