@@ -1,7 +1,15 @@
 N = 10;
-X = randn(N, 2);
+randSeed = 100;
+s = RandStream('mcg16807', 'Seed', randSeed);
+X = s.randn(N, 2);
+
+%X = [0 0; 0 1; 1 2; 3 1];
+
 D = squareform(pdist(X));
 [centers, rads] = NaiveGreedyKCenter(D);
+[centers2, rads2] = GreedyKCenter(X);
+
+[centers rads centers2 rads2]
 
 theta = 0:0.1:2*pi+0.1;
 buffer = mean(D(:));
@@ -18,6 +26,7 @@ for k = 1:N;
        scatter(X(C, 1), X(C, 2));
     end
     scatter(X(C, 1), X(C, 2), 100, 'k', 'fill');
+    text(X(:, 1) + 0.1, X(:, 2) + 0.1, strread(num2str(0:N-1), '%s'));
     xlim(limX);
     ylim(limY);
     print('-dpng', '-r100', sprintf('%i.png', k));
