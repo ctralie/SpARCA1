@@ -1,4 +1,4 @@
-N = 10;
+N = 20;
 randSeed = 100;
 s = RandStream('mcg16807', 'Seed', randSeed);
 X = s.randn(N, 2);
@@ -19,9 +19,9 @@ for k = 1:N;
     clf;
     plot(X(:, 1), X(:, 2), 'r.');
     hold on;
-    R = rads(k);
+    R = rads2(k);
     for ii = 1:k
-       C = centers(ii);
+       C = centers2(ii);
        plot(X(C, 1) + R*cos(theta), X(C, 2) + R*sin(theta));
        scatter(X(C, 1), X(C, 2));
     end

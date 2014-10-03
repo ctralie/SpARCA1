@@ -10,6 +10,7 @@
 #include <math.h>
 #include <iostream>
 #include <algorithm>
+#include <queue>
 #include <list>
 #include <vector>
 #include <assert.h>
@@ -28,20 +29,27 @@ using namespace std;
 
 //Structure used in the max heap to find the furthest point from the 
 //k centers, which will be used as the next center in the greedy scheme
-struct FPElem {
+class FPElem {
+public:
 	int k; //Associated with this cluster center
 	int index; //Index of the furthest point in the points list
 	double dist; //Distance of the furthest point
+	
+	void print() {
+		mexPrintf("k = %i, index = %i, dist = %g\n", k, index + 1, dist);
+	}
 };
 
 //Comparator for this structure
-//Sort in descending order
-bool FPComp(const FPElem& e1, const FPElem& e2) {
-	if (e2.dist < e1.dist) {
-		return true;
+class FPComp {
+public:
+	bool operator()(const FPElem& e1, const FPElem& e2) {
+		if (e1.dist < e2.dist) {
+			return true;
+		}
+		return false;
 	}
-	return false;
-}
+};
 
 
 //Class for storing each k-center along with its friends list, cluster list
@@ -70,7 +78,7 @@ class ProblemInstance {
 public:
 	double* alphasSqr;//Squared distance of points to cluster centers
 	KCenter* centers;//The k centers
-	vector<FPElem> FPHeap;//The structure for containing the max heap for distances
+	priority_queue<FPElem, vector<FPElem>, FPComp> FPHeap;//The structure for containing the max heap for distances
 	double* X;//The actual N-point point cloud in R^D
 	size_t N, D;
 	
@@ -168,7 +176,6 @@ void scanCluster(ProblemInstance& inst, int newclusterK, int clusterK) {
 			inst.alphasSqr[P] = distSqr;
 			//Add this point to the new center if it isn't the new cluster center
 			if (P != inst.centers[newclusterK].pointIndex) {
-				mexPrintf("Move %i to new center\n", P);
 				inst.centers[newclusterK].points.push_back(P);
 			}
 			//The furthest point in this cluster is no longer
@@ -186,8 +193,7 @@ void scanCluster(ProblemInstance& inst, int newclusterK, int clusterK) {
 	//Step 2: If the furthest point in the kth cluster has been removed,
 	//figure out what the the new furthest point in the kth cluster is, 
 	//and add that point to the max heap
-	if (furthestInvalid) {
-		mexPrintf("***Furthest cluster point in cluster %i invalidated\n", clusterK);
+	if (furthestInvalid && inst.centers[clusterK].points.size() > 0) {
 		FPElem newElem;
 		newElem.k = clusterK;
 		newElem.index = 0;
@@ -202,8 +208,7 @@ void scanCluster(ProblemInstance& inst, int newclusterK, int clusterK) {
 			it++;
 		}
 		newElem.dist = sqrt(newElem.dist);
-		inst.FPHeap.push_back(newElem);
-		push_heap(inst.FPHeap.begin(), inst.FPHeap.end(), &FPComp);
+		inst.FPHeap.push(newElem);
 		inst.centers[clusterK].furthestP = newElem.index;
 		inst.centers[clusterK].furthestD = newElem.dist;
 	}
@@ -214,7 +219,7 @@ void scanCluster(ProblemInstance& inst, int newclusterK, int clusterK) {
 //that are nearby to the new cluster
 void getNextClusterCenter(ProblemInstance& inst, int k) {
 	if (VERBOSE)
-		mexPrintf("Calculating cluster center %i\n", k);
+		mexPrintf("\n\n\nCalculating cluster center %i\n", k);
 	
 	list<int>::iterator it;
 	inst.centers[k].k = k;
@@ -223,10 +228,8 @@ void getNextClusterCenter(ProblemInstance& inst, int k) {
 	FPElem e;
 	do {
 		//Loop through while outdated furthest points are on the heap
-		pop_heap(inst.FPHeap.begin(), inst.FPHeap.end(), &FPComp);
-		e = inst.FPHeap.back();
-		inst.FPHeap.pop_back();
-		//mexPrintf("e.k = %i, e.index = %i, e.dist = %g, FPHeap.size() = %i\n", e.k, e.index, e.dist, inst.FPHeap.size());
+		e = inst.FPHeap.top();
+		inst.FPHeap.pop();
 	}
 	while (e.index != inst.centers[e.k].furthestP);
 	
@@ -237,7 +240,7 @@ void getNextClusterCenter(ProblemInstance& inst, int k) {
 	inst.centers[k-1].R = e.dist;
 	int CPk = e.k;
 	if (VERBOSE)
-		mexPrintf("Cluster center %i is point %i\n", k, e.index + 1);
+		mexPrintf("Cluster center %i is point %i, radius %g\n", k, e.index + 1, e.dist);
 
 	//Step 2: Scan all of the points currently served by the same
 	//cluster as CPk and by clusters in CPk's friends list
@@ -272,8 +275,7 @@ void getNextClusterCenter(ProblemInstance& inst, int k) {
 		newClusterFar.k = k;
 		newClusterFar.index = inst.centers[k].furthestP;
 		newClusterFar.dist = inst.centers[k].furthestD;
-		inst.FPHeap.push_back(newClusterFar);
-		push_heap(inst.FPHeap.begin(), inst.FPHeap.end(), &FPComp);
+		inst.FPHeap.push(newClusterFar);
 	}
 
 
@@ -377,7 +379,7 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 	e0.k = 0; 
 	e0.index = inst.centers[0].furthestP; 
 	e0.dist = inst.centers[0].furthestD;
-	inst.FPHeap.push_back(e0);
+	inst.FPHeap.push(e0);
 	
 	//Initialize phase information for the first phase
 	inst.phase = 0;
@@ -391,7 +393,7 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 	//one at a time
 	for (size_t k = 1; k < N; k++) {
 		getNextClusterCenter(inst, k);
-		inst.printAllCenters(k);
+		//inst.printAllCenters(k);
 	}
 	
 	///////////////MEX OUTPUTS/////////////////
