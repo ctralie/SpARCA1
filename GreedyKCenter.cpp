@@ -18,6 +18,8 @@
 using namespace std;
 
 #define VERBOSE 1
+#define VERBOSE_PRINTCENTERS 1
+#define VERBOSE_HEAP 0
 
 //TODO: Accelerate with GPU
 //TODO: Add a distance oracle in place of requiring things to be Euclidean
@@ -36,7 +38,7 @@ public:
 	double dist; //Distance of the furthest point
 	
 	void print() {
-		mexPrintf("k = %i, index = %i, dist = %g\n", k, index + 1, dist);
+		mexPrintf("k = %i, index = %i, dist = %g\n", k, index, dist);
 	}
 };
 
@@ -116,18 +118,18 @@ public:
 	
 	void printCenter(size_t k) {
 		list<int>::iterator it;
-		mexPrintf("===== Cluster %i =====\n", k);
-		mexPrintf("Point %i, Radius %g\n", centers[k].pointIndex + 1, centers[k].R);
+		mexPrintf("===== Cluster %i =====\n", centers[k].pointIndex);
+		mexPrintf("Radius %g, furthestP %i, furthestD %g\n", centers[k].R, centers[k].furthestP, centers[k].furthestD);
 		mexPrintf("Members: ");
 		it = centers[k].points.begin();
 		while (it != centers[k].points.end()) {
-			mexPrintf("%i, ", *it + 1);
+			mexPrintf("%i, ", *it);
 			it++;
 		}
 		mexPrintf("\nFriends: ");
 		it = centers[k].friends.begin();
 		while (it != centers[k].friends.end()) {
-			mexPrintf("%i, ", *it + 1);
+			mexPrintf("%i, ", *it);
 			it++;
 		}
 		mexPrintf("\n\n");		
@@ -211,6 +213,10 @@ void scanCluster(ProblemInstance& inst, int newclusterK, int clusterK) {
 		inst.FPHeap.push(newElem);
 		inst.centers[clusterK].furthestP = newElem.index;
 		inst.centers[clusterK].furthestD = newElem.dist;
+		if (VERBOSE_HEAP) {
+			mexPrintf("Pushing: ");
+			newElem.print();
+		}
 	}
 }
 
@@ -230,6 +236,11 @@ void getNextClusterCenter(ProblemInstance& inst, int k) {
 		//Loop through while outdated furthest points are on the heap
 		e = inst.FPHeap.top();
 		inst.FPHeap.pop();
+		if (VERBOSE_HEAP) {
+			mexPrintf("Popping: ");
+			e.print();
+			mexPrintf("inst.centers[%i].furthestP = %i\n", e.k, inst.centers[e.k].furthestP);
+		}
 	}
 	while (e.index != inst.centers[e.k].furthestP);
 	
@@ -241,6 +252,9 @@ void getNextClusterCenter(ProblemInstance& inst, int k) {
 	int CPk = e.k;
 	if (VERBOSE)
 		mexPrintf("Cluster center %i is point %i, radius %g\n", k, e.index + 1, e.dist);
+	//Add this new cluster center to the previous cluster center's friends list
+	inst.centers[k].friends.push_back(CPk);
+	inst.centers[CPk].friends.push_back(k);
 
 	//Step 2: Scan all of the points currently served by the same
 	//cluster as CPk and by clusters in CPk's friends list
@@ -251,6 +265,7 @@ void getNextClusterCenter(ProblemInstance& inst, int k) {
 		//Lazy check to see if this friend should be removed from the friends list
 		double friendDist = sqrt(getSqrDist(inst, inst.centers[CPk].pointIndex, inst.centers[*it].pointIndex));
 		if (friendDist > 8*e.dist) {
+			mexPrintf("Removing %i from %i's friends list\n", *it, CPk);
 			it = inst.centers[CPk].friends.erase(it);
 		}
 		else {
@@ -276,6 +291,10 @@ void getNextClusterCenter(ProblemInstance& inst, int k) {
 		newClusterFar.index = inst.centers[k].furthestP;
 		newClusterFar.dist = inst.centers[k].furthestD;
 		inst.FPHeap.push(newClusterFar);
+		if (VERBOSE_HEAP) {
+			mexPrintf("Pushing: ");
+			newClusterFar.print();
+		}
 	}
 
 
@@ -292,13 +311,17 @@ void getNextClusterCenter(ProblemInstance& inst, int k) {
 		double distCenter = sqrt(getSqrDist(inst, inst.centers[*it].pointIndex, LSk));
 		//Distance to new cluster center
 		double distNew = sqrt(getSqrDist(inst, inst.centers[*it].pointIndex, Pk));
-		if (distNew < 4*Rk) {
+		if (distNew < 4*Rk && *it != k) {
 			//Add the centers to each others' friends lists
+			if (VERBOSE)
+				mexPrintf("Adding friends %i and %i\n", *it, k);
 			inst.centers[k].friends.push_back(*it);
 			inst.centers[*it].friends.push_back(k);
 		}
 		//Lazy check if this friend should be removed from the friends list
 		if (distCenter > 8*Rk) {
+			if (VERBOSE)
+				mexPrintf("Removing %i from %i's friends list\n", *it, CPk);
 			it = inst.centers[CPk].friends.erase(it);
 		}
 		else {
@@ -392,8 +415,11 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 	//Loop through and compute the new cluster centers
 	//one at a time
 	for (size_t k = 1; k < N; k++) {
+		if (VERBOSE_PRINTCENTERS)
+			mexPrintf("*********STEP %i************\n", k);
 		getNextClusterCenter(inst, k);
-		//inst.printAllCenters(k);
+		if (VERBOSE_PRINTCENTERS)
+			inst.printAllCenters(k);
 	}
 	
 	///////////////MEX OUTPUTS/////////////////

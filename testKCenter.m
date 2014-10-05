@@ -9,8 +9,9 @@ D = squareform(pdist(X));
 [centers, rads] = NaiveGreedyKCenter(D);
 [centers2, rads2] = GreedyKCenter(X);
 
-[centers rads centers2 rads2]
+[centers-1 rads centers2-1 rads2]
 
+if 0
 theta = 0:0.1:2*pi+0.1;
 buffer = mean(D(:));
 limX = [min(X(:, 1)) - buffer, max(X(:, 1)) + buffer];
@@ -30,4 +31,5 @@ for k = 1:N;
     xlim(limX);
     ylim(limY);
     print('-dpng', '-r100', sprintf('%i.png', k));
+end
 end
