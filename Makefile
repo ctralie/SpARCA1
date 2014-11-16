@@ -1,10 +1,14 @@
 MEX = mex
-MEXINCLUDE = -I/usr/local/MATLAB/R2013b/extern/include/
+#Change the path below to match your matlab path
+MEXINCLUDE = -I/usr/local/MATLAB/R2014b/extern/include/
 
 
 #LIBS = -lcudart -lcublas
 
-all: GreedyKCenter NaiveGreedyKCenter
+all: SlowSparseEdgeList GreedyKCenter NaiveGreedyKCenter
+
+SlowSparseEdgeList: SlowSparseEdgeList.cpp
+	$(MEX) -g SlowSparseEdgeList.cpp $(MEXINCLUDE)
 
 GreedyKCenter: GreedyKCenter.cpp
 	$(MEX) -g GreedyKCenter.cpp $(MEXINCLUDE)
