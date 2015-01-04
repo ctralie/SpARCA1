@@ -5,7 +5,13 @@ MEXINCLUDE = -I/usr/local/MATLAB/R2014b/extern/include/
 
 #LIBS = -lcudart -lcublas
 
-all: SlowSparseEdgeList GreedyKCenter NaiveGreedyKCenter
+all: NaiveSparseCliqueReduction SlowSparseEdgeList GreedyKCenter NaiveGreedyKCenter
+
+NaiveSparseCliqueReduction: NaiveSparseCliqueReduction.cpp
+	$(MEX) -g NaiveSparseCliqueReduction.cpp $(MEXINCLUDE)
+
+SparseEdgeList: SparseEdgeList.cpp
+	$(MEX) -g SparseEdgeList.cpp $(MEXINCLUDE)
 
 SlowSparseEdgeList: SlowSparseEdgeList.cpp
 	$(MEX) -g SlowSparseEdgeList.cpp $(MEXINCLUDE)

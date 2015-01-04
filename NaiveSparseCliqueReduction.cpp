@@ -1,6 +1,7 @@
 //Programmer: Chris Tralie
 //Purpose: To extract a sparse edge list from a point cloud given a cover tree
-//over that point cloud
+//over that point cloud, to find cliques the slow way, and to compute dgm0 to dgmk
+//using the naive reduction algorithm
 #include <mex.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,7 +12,7 @@
 #include <vector>
 #include <assert.h>
 #include <map>
-
+#include <sstream>
 
 using namespace std;
 
@@ -28,7 +29,7 @@ double getSqrDist(double* X, int N, int D, int i, int j) {
 
 //Return by value e1, e2, ed.  Set e1 and e2 to -1 if the edge shouldn't be added
 //This function figures out if and when an edge between vp and vq should be included
-void getEdge(int p, int q, double* X, int N, int D, double* ts, int* e1, int* e2, double* ed) {
+void getEdgeRelaxedDist(int p, int q, double* X, int N, int D, double* ts, int* e1, int* e2, double* ed) {
 	double dpq = sqrt(getSqrDist(X, N, D, p, q));
 	double tp = ts[p];
 	double tq = ts[q];
@@ -63,11 +64,104 @@ void getEdge(int p, int q, double* X, int N, int D, double* ts, int* e1, int* e2
 	*e2 = -1;
 }
 
+void addIndices(vector<int>& cliqueidx, unsigned char c, int offset) {
+	for (int i = 0; i < 8; i++) {
+		unsigned char u = 1 << i;
+		if (u & c > 0) {
+			clique.push_back(offset+i);
+		}
+	}
+}
+
+//Check all subsets of a proximity list to find cliques by 
+//using binary counting
+void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, map<string, int>* simplices, map<string, double>* simplicesD) {
+	stringstream ss;
+	int n = Ep.size()/8;
+	unsigned char rem = (unsigned char)(Ep.size() % 8);
+	if (rem != 0)
+		n++;
+	unsigned char counter = new unsigned char[n];
+	map<string, double>::iterator it;
+	
+	//Pre-copy pairwise edge lists from EDists
+	int EpSize = (int)(Ep.size());
+	double* dists = new double[EpSize*EpSize];
+	int i1, i2;
+	for (size_t i = 0; i < Ep.size(); i++) {
+		for (size_t j = i+1; j < Ep.size(); j++) {
+			ss.str("");
+			ss << i << "_" << j;
+			it = EDists.find(ss.str());
+			i1 = i*EPSize + j;
+			i2 = j*EPSize + i;
+			if (it == EDists.end()) {
+				dists[i1] = -1;//TODO: Use something else for max distance?
+				dists[i2] = -1;
+			}
+			dists[i1] = it->last;
+			dists[i2] = it->last;
+		} 
+	}
+	
+	for (size_t i = 1; i < Ep.size(); i++) { //Start at 1 to skip the empty set
+		vector<int> cliqueidx;//Clique indices
+		//Add 1 to the long int represented by counter
+		bool carry = true;
+		for (int k = 0; k < n; k++) {
+			if (carry) {
+				if (counter[k] == 255) {
+					counter[k] = 0;
+					carry = true;
+				}
+				else {
+					counter[k]++;
+					carry = false;
+				}
+			}
+		}
+		//Check if the end has been reached
+		if (rem > 0) {
+			if (counter[n-1] == 1 << rem) {
+				break;
+			}
+		}
+		//If this is still in the range of subsets to consider
+		//create the subset list
+		for (int k = 0; k < n; k++) {
+			addIndices(cliqueidx, counter[k], k*8);
+		}
+		//Now check every edge in the subset list to see
+		//if its a valid clique
+		double maxDist = 0;
+		bool validClique = true;
+		for (size_t a = 0; a < cliqueidx.size(); a++) {
+			for (size_t b = a + 1; b < cliqueidx.size(); b++) {
+				i1 = cliqueidx[a];
+				i2 = cliqueidx[b];
+				index = i1*EPSize + i2;
+				if (dists[index] == -1) {
+					validClique = false;
+				}
+				maxDist = max(maxDist, dists[index]);
+			}
+			if (!validClique)
+				break;
+		}
+		//If it's a valid clique, add it to the appropriate
+		//sparse simplices map
+		//TODO: Finish this (add simplex distance list)
+		ss.str("");
+		(simplices[clique.size()])[]
+	}
+}
+
 //Inputs: *X: NxD point cloud matrix
 //*radii: L x 1 matrix, where L is the number of levels
 //*levels: Nx4 matrix with Bill's structure
 //*theta: Covering radius shrinkage parameter
 //*rootLevel: The integer index of the root level
+//*MaxBetti: The maximum Betti numbers to compute (involving MaxK+2 simplices)
 
 //Outputs: *Edges: Mx3 list of edge indices; where M is the number of edges included
 //The first two columns are the indices, and the third column is the relaxed distance
@@ -84,6 +178,7 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 	int* levels;
 	double theta;
 	int rootLevel;
+	int MaxBetti;
 	
 	const mwSize *dims;
 	size_t N, D, NLevels;
@@ -137,11 +232,15 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 	}
 	rootLevel = (int)(*((double*)mxGetPr(InArray[4])));
 	
-	///////////////ALGORITHM/////////////////
+	if (nInArray < 6) {
+		mexErrMsgTxt("Expecting MaxBetti as sixth input");
+		return;
+	}
+	MaxBetti = (int)(*((double*)mxGetPr(InArray[5])));
 	
-	vector<int> e1List;//Edges endpoint 1
-	vector<int> e2List;//Edges endpoint 2
-	vector<double> edList;//Edges relaxed distance
+	///////////////ALGORITHM/////////////////
+	vector<int>* Ep = new vector<int>[N];//Proximity lists
+	map<string, double> EDists;//Map from "v1_v2" to relaxed distance
 	
 	//Calculate deletion times based on cover tree info
 	double* ts = new double[N];
@@ -152,22 +251,40 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 		//mexPrintf("%g\n", ts[i]);
 	}
 	
-	//Check all paris of edges (slow version)
+	//Check all pairs of edges to find the sparse list (slow version)
 	for (int i = 0; i < N; i++) {
-		for (int j = i+1; j < N; j++) {
-			if (ts[j] < ts[i])
-				continue;
+		for (int j = i; j < N; j++) {
 			int e1, e2;
 			double ed;
-			getEdge(i, j, X, N, D, ts, &e1, &e2, &ed);
+			if (i == j) {
+				ed = 0;//Include the vertex itself in the proximity list
+				e1 = i;
+				e2 = j;
+			}
+			else {
+				getEdgeRelaxedDist(i, j, X, N, D, ts, &e1, &e2, &ed);
+			}
 			if (e1 != -1 && e2 != -1) {
-				e1List.push_back(e1);
-				e2List.push_back(e2);
-				edList.push_back(ed);
+				Ep[i].push_back(j);
+				Ep[j].push_back(i);
+				stringstream ss;
+				ss << i << "_" << j;
+				EDists[ss.str()] = ed;				
 			}
 		}
 	}
 	
+	//Check all subsets of proximity lists to detect cliques
+	map<string, int>* simplices = new map<string, int>[MaxBetti+2];
+	for (int k = 0; k < MaxBetti+2; k++) {
+		getKCliques(Ep, EDists, simplices, k, N);
+		//Now number (index) the k-cliques based on their iterating order
+		int i = 0;
+		for (map<string,int>::iterator it = simplices[k].begin(); it != simplices[k].end(); it++) {
+			simplices[it->first] = i;
+			i++;
+		}
+	}
 	
 	///////////////MEX OUTPUTS/////////////////
 	size_t M = e1List.size() + N;
