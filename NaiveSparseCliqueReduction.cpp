@@ -16,6 +16,26 @@
 
 using namespace std;
 
+typedef struct sinf {
+	string str;//TODO: Make this a pointer?
+	size_t index;
+	size_t k;//Number of vertices in the simplex
+	double dist;
+} SimplexInfo;
+
+struct Simplex_DistComparator {
+	bool operator()(SimplexInfo* s1, SimplexInfo* s2) const {
+		if (s1->dist < s2->dist) {
+			return true;
+		}
+		else if (s1->dist == s2->dist) {
+			//Make sure to add the faces of a simplex before adding the simplex
+			return s1->k < s2->k;
+		}
+		return false;
+	}
+};
+
 //Return the squared distance between X_i and X_j
 double getSqrDist(double* X, int N, int D, int i, int j) {
 	double ret = 0.0;
@@ -73,9 +93,32 @@ void addIndices(vector<int>& cliqueidx, unsigned char c, int offset) {
 	}
 }
 
+//Return strings for all of the co-dimension 1 faces of the simplex 
+//represented by str, and store them in the vector "cocliques"
+void getCoDim1CliqueStrings(vector<string>& cocliques, string str) {
+	int lasti = 0;
+	for (size_t i = 0; i < str.size(); i++) {
+		if (str[i] == '_') {
+			//Omit the number between lasti and this index
+			string str2 = "";
+			if (lasti > 0) {
+				str2 = str2 + str.substr(0, lasti);
+				if (i + 1 < str.size()) {
+					str2 = str2 + "_" + str.substr(i + 1);
+				}
+			}
+			else {
+				str2 = str.substr(i+1);
+			}
+			cocliques.push_back(str2);
+			lasti = i;
+		}
+	}
+}
+
 //Check all subsets of a proximity list to find cliques by 
 //using binary counting
-void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, map<string, int>* simplices, map<string, double>* simplicesD) {
+void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, map<string, SimplexInfo>* simplices) {
 	stringstream ss;
 	int n = Ep.size()/8;
 	unsigned char rem = (unsigned char)(Ep.size() % 8);
@@ -132,7 +175,7 @@ void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, m
 			addIndices(cliqueidx, counter[k], k*8);
 		}
 		//Now check every edge in the subset list to see
-		//if its a valid clique
+		//if it's a valid clique
 		double maxDist = 0;
 		bool validClique = true;
 		for (size_t a = 0; a < cliqueidx.size(); a++) {
@@ -150,9 +193,23 @@ void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, m
 		}
 		//If it's a valid clique, add it to the appropriate
 		//sparse simplices map
-		//TODO: Finish this (add simplex distance list)
+		for (size_t k = 0; k < cliqueidx.size(); k++) {
+			cliqueidx[k] = Ep[cliqueidx[k]];
+		}
+		//The indexing string for cliques is the index of all simplices
+		//sorted in ascending order, separated by underscores
+		sort(cliqueidx.begin(), cliqueidx.end());
 		ss.str("");
-		(simplices[clique.size()])[]
+		for (size_t k = 0; k < cliqueidx.size(); k++) {
+			ss << cliqueidx[k];
+			if ((int)k < ((int)cliqueidx.size()) - 1) {
+				ss << "_";
+			}
+		}
+		(simplices[((int)clique.size()) - 1])[ss.str()].index = 0;
+		(simplices[((int)clique.size()) - 1])[ss.str()].dist = maxDist;
+		(simplices[((int)clique.size()) - 1])[ss.str()].str = ss.str();
+		(simplices[((int)clique.size()) - 1])[ss.str()].k = cliqueidx.size();
 	}
 }
 
@@ -275,16 +332,27 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 	}
 	
 	//Check all subsets of proximity lists to detect cliques
-	map<string, int>* simplices = new map<string, int>[MaxBetti+2];
+	map<string, SimplexInfo>* simplices = new map<string, int>[MaxBetti+2];//Index of simplices
+	
+	for (int i = 0; i < N; i++) {
+		addCliquesFromProximityList(Ep[i], EDists, simplices);
+	}
+	
+	//Sort the simplices in ascending order of distance
 	for (int k = 0; k < MaxBetti+2; k++) {
-		getKCliques(Ep, EDists, simplices, k, N);
-		//Now number (index) the k-cliques based on their iterating order
-		int i = 0;
+		vector<SimplexInfo*> s;
 		for (map<string,int>::iterator it = simplices[k].begin(); it != simplices[k].end(); it++) {
-			simplices[it->first] = i;
-			i++;
+			s.push_back(it.second);
+		}
+		sort(s.begin(), s.end(), Simplex_DistComparator());
+		for (size_t i = 0; i < s.size(); i++) {
+			s[i]->index = i;
 		}
 	}
+	
+	//Create the sparse boundary matrices for every level
+	
+	
 	
 	///////////////MEX OUTPUTS/////////////////
 	size_t M = e1List.size() + N;
@@ -316,6 +384,7 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 	memcpy(tsOut, ts, N*sizeof(double));
 	
 	///////////////CLEANUP/////////////////
+	//TODO: Cleanup all allocated stuff
 	delete[] ts;
 	delete[] edgeList;
 }
