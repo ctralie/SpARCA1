@@ -13,7 +13,6 @@
 #include <assert.h>
 #include <map>
 #include <sstream>
-#include <bitset>
 
 using namespace std;
 
@@ -85,15 +84,6 @@ void getEdgeRelaxedDist(int p, int q, double* X, int N, int D, double* ts, int* 
 	*e2 = -1;
 }
 
-void addIndices(vector<int>& cliqueidx, unsigned char c, int offset) {
-	for (int i = 0; i < 8; i++) {
-		unsigned char u = 1 << i;
-		if ((u & c) > 0) {
-			cliqueidx.push_back(offset+i);
-		}
-	}
-}
-
 //Return strings for all of the co-dimension 1 faces of the simplex 
 //represented by str, and store them in the vector "cocliques"
 void getCoDim1CliqueStrings(vector<string>& cocliques, string str) {
@@ -127,11 +117,7 @@ void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, m
 	mexPrintf("Ep.size() = %i\n", Ep.size());
 	mexEvalString("drawnow");
 	stringstream ss;
-	int n = Ep.size()/8;
-	unsigned char rem = (unsigned char)(Ep.size() % 8);
-	if (rem != 0)
-		n++;
-	unsigned char* counter = new unsigned char[n];
+
 	map<string, double>::iterator it;
 	
 	//Pre-copy pairwise edge lists from EDists
@@ -158,68 +144,35 @@ void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, m
 		} 
 	}
 	
-	int i = 0;
-	//Now do binary counting to find all subsets
-	while(true) { 
-		//Start at 1 to skip the empty set
-		vector<int> cliqueidx;//Clique indices in Ep
-		bool carry = true;
-		
-		//Add 1 to the long int represented by counter
-		for (int k = 0; k < n; k++) {
-			if (carry) {
-				if (counter[k] == 255) {
-					counter[k] = 0;
-					carry = true;
-				}
-				else {
-					counter[k]++;
-					carry = false;
-				}
+	//Now find all subsets up to size MaxBetti+2
+	int MaxClique = min(MaxBetti+2, EpSize);
+	vector<int> cliqueidx;
+	while(true) {
+		if (cliqueidx.size() < MaxClique) {
+			if (cliqueidx.size() == 0) {
+				cliqueidx.push_back(-1);//Base case
+			}
+			else {
+				cliqueidx.push_back(cliqueidx[((int)cliqueidx.size()) - 1]);
 			}
 		}
-		//Check if the end has been reached
-		if (rem > 0) {
-			if (counter[n-1] == 1 << rem) {
-				break;
-			}
+		cliqueidx[((int)cliqueidx.size()) - 1]++;
+		while (cliqueidx.size() > 1 && cliqueidx[((int)cliqueidx.size()) - 1] >= EpSize) {
+			cliqueidx.pop_back();
+			cliqueidx[((int)cliqueidx.size()) - 1]++;
 		}
-		else {
-			if (carry) {
-				break;
-			}
+		if (cliqueidx.size() == 1 && cliqueidx[0] == EpSize) {
+			break;
 		}
 		
+		//Debugging output for mex to make sure I'm going through cliques properly
 		/*ss.str("");
-		for (int k = n-1; k >= 0; k--) {
-			bitset<8> x(counter[k]);
-			ss << x;
+		ss << "(" << cliqueidx.size() << "): ";
+		for (size_t i = 0; i < cliqueidx.size(); i++) {
+			 ss << cliqueidx[i] << ", ";
 		}
-		ss << "  (" << i << "), [";
-		for (size_t k = 0; k < cliqueidx.size(); k++) {
-			ss << cliqueidx[k] << " ";
-		}
-		ss << "]\n";
-		mexPrintf("%s\n", ss.str().c_str());
-		i++;
-		mexEvalString("drawnow");*/
-		
-		//If this is still in the range of subsets to consider
-		//create the subset list
-		for (int k = 0; k < n; k++) {
-			addIndices(cliqueidx, counter[k], k*8);
-		}
-		continue;
-
-		if (cliqueidx.size() > MaxBetti+2) {
-			//Don't add cliques beyond the dimension needed to compute the
-			//requested Betti Numbers
-			continue;
-		}
-		else if (cliqueidx.size() == 0) {
-			mexPrintf("Error: cliqueidx size is 0\n");
-			mexEvalString("drawnow");
-		}
+		ss << endl;
+		mexPrintf("%s", ss.str().c_str());*/		
 		
 		//Now check every edge in the subset list to see
 		//if it's a valid clique
@@ -242,26 +195,26 @@ void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, m
 		//If it's a valid clique, add it to the appropriate
 		//sparse simplices map
 		if (validClique) {
+			vector<int> clique(cliqueidx.size());
 			for (size_t k = 0; k < cliqueidx.size(); k++) {
-				cliqueidx[k] = Ep[cliqueidx[k]];
+				clique[k] = Ep[cliqueidx[k]];
 			}
 			//The indexing string for cliques is the index of all simplices
 			//sorted in ascending order, separated by underscores
-			sort(cliqueidx.begin(), cliqueidx.end());
+			sort(clique.begin(), clique.end());
 			ss.str("");
-			for (size_t k = 0; k < cliqueidx.size(); k++) {
-				ss << cliqueidx[k];
-				if ((int)k < ((int)cliqueidx.size()) - 1) {
+			for (size_t k = 0; k < clique.size(); k++) {
+				ss << clique[k];
+				if ((int)k < ((int)clique.size()) - 1) {
 					ss << "_";
 				}
 			}
-			(simplices[((int)cliqueidx.size()) - 1])[ss.str()].index = 0;
-			(simplices[((int)cliqueidx.size()) - 1])[ss.str()].dist = maxDist;
-			(simplices[((int)cliqueidx.size()) - 1])[ss.str()].str = ss.str();
-			(simplices[((int)cliqueidx.size()) - 1])[ss.str()].k = cliqueidx.size();
+			(simplices[((int)clique.size()) - 1])[ss.str()].index = 0;
+			(simplices[((int)clique.size()) - 1])[ss.str()].dist = maxDist;
+			(simplices[((int)clique.size()) - 1])[ss.str()].str = ss.str();
+			(simplices[((int)clique.size()) - 1])[ss.str()].k = clique.size();
 		}
 	}
-	delete[] counter;
 	delete[] dists;
 }
 
