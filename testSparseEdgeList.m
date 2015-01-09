@@ -10,16 +10,14 @@ A.minlevel=int32(0);
 A.NTHREADS=NTHREADS;
 A.BLOCKSIZE=int32(32);
 
-X = makeCircles(2000);
+X = makeCircles(25);
 %X = rand(4000, 2);
 N = size(X, 1);
 
 %Step 1: Do the slow way, including all O(N^2) edges
-% tic;
-% I1 = rca1pc(X, 100);
-% time1 = toc;
-I1 = [0 0];
-time1 = inf;
+tic;
+I1 = rca1pc(X, 100);
+time1 = toc;
 
 %Step 2: Do the fast way, building a sparse edge list
 tic;

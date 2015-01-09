@@ -13,6 +13,7 @@
 #include <assert.h>
 #include <map>
 #include <sstream>
+#include <bitset>
 
 using namespace std;
 
@@ -87,8 +88,8 @@ void getEdgeRelaxedDist(int p, int q, double* X, int N, int D, double* ts, int* 
 void addIndices(vector<int>& cliqueidx, unsigned char c, int offset) {
 	for (int i = 0; i < 8; i++) {
 		unsigned char u = 1 << i;
-		if (u & c > 0) {
-			clique.push_back(offset+i);
+		if ((u & c) > 0) {
+			cliqueidx.push_back(offset+i);
 		}
 	}
 }
@@ -118,39 +119,53 @@ void getCoDim1CliqueStrings(vector<string>& cocliques, string str) {
 
 //Check all subsets of a proximity list to find cliques by 
 //using binary counting
-void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, map<string, SimplexInfo>* simplices) {
+void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, map<string, SimplexInfo>* simplices, int MaxBetti) {
+	if (Ep.size() == 0) {
+		mexPrintf("Warning: Ep.size() = 0\n");
+		return;
+	}
+	mexPrintf("Ep.size() = %i\n", Ep.size());
+	mexEvalString("drawnow");
 	stringstream ss;
 	int n = Ep.size()/8;
 	unsigned char rem = (unsigned char)(Ep.size() % 8);
 	if (rem != 0)
 		n++;
-	unsigned char counter = new unsigned char[n];
+	unsigned char* counter = new unsigned char[n];
 	map<string, double>::iterator it;
 	
 	//Pre-copy pairwise edge lists from EDists
+	//Cuts down on queries to the 
 	int EpSize = (int)(Ep.size());
 	double* dists = new double[EpSize*EpSize];
-	int i1, i2;
+	int i1, i2, index;
+	
 	for (size_t i = 0; i < Ep.size(); i++) {
 		for (size_t j = i+1; j < Ep.size(); j++) {
 			ss.str("");
-			ss << i << "_" << j;
+			ss << Ep[i] << "_" << Ep[j];
 			it = EDists.find(ss.str());
-			i1 = i*EPSize + j;
-			i2 = j*EPSize + i;
+			i1 = i*EpSize + j;
+			i2 = j*EpSize + i;
 			if (it == EDists.end()) {
 				dists[i1] = -1;//TODO: Use something else for max distance?
 				dists[i2] = -1;
 			}
-			dists[i1] = it->last;
-			dists[i2] = it->last;
+			else {
+				dists[i1] = it->second;
+				dists[i2] = it->second;
+			}
 		} 
 	}
 	
-	for (size_t i = 1; i < Ep.size(); i++) { //Start at 1 to skip the empty set
-		vector<int> cliqueidx;//Clique indices
-		//Add 1 to the long int represented by counter
+	int i = 0;
+	//Now do binary counting to find all subsets
+	while(true) { 
+		//Start at 1 to skip the empty set
+		vector<int> cliqueidx;//Clique indices in Ep
 		bool carry = true;
+		
+		//Add 1 to the long int represented by counter
 		for (int k = 0; k < n; k++) {
 			if (carry) {
 				if (counter[k] == 255) {
@@ -169,11 +184,43 @@ void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, m
 				break;
 			}
 		}
+		else {
+			if (carry) {
+				break;
+			}
+		}
+		
+		/*ss.str("");
+		for (int k = n-1; k >= 0; k--) {
+			bitset<8> x(counter[k]);
+			ss << x;
+		}
+		ss << "  (" << i << "), [";
+		for (size_t k = 0; k < cliqueidx.size(); k++) {
+			ss << cliqueidx[k] << " ";
+		}
+		ss << "]\n";
+		mexPrintf("%s\n", ss.str().c_str());
+		i++;
+		mexEvalString("drawnow");*/
+		
 		//If this is still in the range of subsets to consider
 		//create the subset list
 		for (int k = 0; k < n; k++) {
 			addIndices(cliqueidx, counter[k], k*8);
 		}
+		continue;
+
+		if (cliqueidx.size() > MaxBetti+2) {
+			//Don't add cliques beyond the dimension needed to compute the
+			//requested Betti Numbers
+			continue;
+		}
+		else if (cliqueidx.size() == 0) {
+			mexPrintf("Error: cliqueidx size is 0\n");
+			mexEvalString("drawnow");
+		}
+		
 		//Now check every edge in the subset list to see
 		//if it's a valid clique
 		double maxDist = 0;
@@ -182,7 +229,7 @@ void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, m
 			for (size_t b = a + 1; b < cliqueidx.size(); b++) {
 				i1 = cliqueidx[a];
 				i2 = cliqueidx[b];
-				index = i1*EPSize + i2;
+				index = i1*EpSize + i2;
 				if (dists[index] == -1) {
 					validClique = false;
 				}
@@ -191,26 +238,31 @@ void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, m
 			if (!validClique)
 				break;
 		}
+		
 		//If it's a valid clique, add it to the appropriate
 		//sparse simplices map
-		for (size_t k = 0; k < cliqueidx.size(); k++) {
-			cliqueidx[k] = Ep[cliqueidx[k]];
-		}
-		//The indexing string for cliques is the index of all simplices
-		//sorted in ascending order, separated by underscores
-		sort(cliqueidx.begin(), cliqueidx.end());
-		ss.str("");
-		for (size_t k = 0; k < cliqueidx.size(); k++) {
-			ss << cliqueidx[k];
-			if ((int)k < ((int)cliqueidx.size()) - 1) {
-				ss << "_";
+		if (validClique) {
+			for (size_t k = 0; k < cliqueidx.size(); k++) {
+				cliqueidx[k] = Ep[cliqueidx[k]];
 			}
+			//The indexing string for cliques is the index of all simplices
+			//sorted in ascending order, separated by underscores
+			sort(cliqueidx.begin(), cliqueidx.end());
+			ss.str("");
+			for (size_t k = 0; k < cliqueidx.size(); k++) {
+				ss << cliqueidx[k];
+				if ((int)k < ((int)cliqueidx.size()) - 1) {
+					ss << "_";
+				}
+			}
+			(simplices[((int)cliqueidx.size()) - 1])[ss.str()].index = 0;
+			(simplices[((int)cliqueidx.size()) - 1])[ss.str()].dist = maxDist;
+			(simplices[((int)cliqueidx.size()) - 1])[ss.str()].str = ss.str();
+			(simplices[((int)cliqueidx.size()) - 1])[ss.str()].k = cliqueidx.size();
 		}
-		(simplices[((int)clique.size()) - 1])[ss.str()].index = 0;
-		(simplices[((int)clique.size()) - 1])[ss.str()].dist = maxDist;
-		(simplices[((int)clique.size()) - 1])[ss.str()].str = ss.str();
-		(simplices[((int)clique.size()) - 1])[ss.str()].k = cliqueidx.size();
 	}
+	delete[] counter;
+	delete[] dists;
 }
 
 //Inputs: *X: NxD point cloud matrix
@@ -330,19 +382,22 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 			}
 		}
 	}
+	mexPrintf("Finished getting edge list\n");
 	
 	//Check all subsets of proximity lists to detect cliques
-	map<string, SimplexInfo>* simplices = new map<string, int>[MaxBetti+2];//Index of simplices
+	map<string, SimplexInfo>* simplices = new map<string, SimplexInfo>[MaxBetti+2];//Index of simplices
 	
 	for (int i = 0; i < N; i++) {
-		addCliquesFromProximityList(Ep[i], EDists, simplices);
+		mexPrintf("%i of %i\n", i, N);
+		mexEvalString("drawnow");
+		addCliquesFromProximityList(Ep[i], EDists, simplices, MaxBetti);
 	}
 	
 	//Sort the simplices in ascending order of distance
 	for (int k = 0; k < MaxBetti+2; k++) {
 		vector<SimplexInfo*> s;
-		for (map<string,int>::iterator it = simplices[k].begin(); it != simplices[k].end(); it++) {
-			s.push_back(it.second);
+		for (map<string,SimplexInfo>::iterator it = simplices[k].begin(); it != simplices[k].end(); it++) {
+			s.push_back(&(it->second));
 		}
 		sort(s.begin(), s.end(), Simplex_DistComparator());
 		for (size_t i = 0; i < s.size(); i++) {
@@ -350,27 +405,22 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 		}
 	}
 	
+	//Debug print
+	for (int k = 0; k < MaxBetti+2; k++) {
+		mexPrintf("------------------------\nThere are %i %i-simplices\n", simplices[k].size(), k);
+		for (map<string,SimplexInfo>::iterator it = simplices[k].begin(); it != simplices[k].end(); it++) {
+			string str = it->first;
+			mexPrintf("%s\n", str.c_str());
+		}		
+	}
+	
 	//Create the sparse boundary matrices for every level
 	
 	
 	
 	///////////////MEX OUTPUTS/////////////////
-	size_t M = e1List.size() + N;
-	double* edgeList = new double[M*3];
-	//Add entries for points first
-	for (size_t i = 0; i < N; i++) {
-		edgeList[i] = i;
-		edgeList[i+M] = i;
-		edgeList[i+2*M] = 0;
-	}
-	//Now add edges between points
-	for (size_t i = N; i < M; i++) {
-		edgeList[i] = e1List[i-N];
-		edgeList[i+M] = e2List[i-N];
-		edgeList[i+2*M] = edList[i-N];
-	}
 	
-	mwSize outdims[2];
+	/*mwSize outdims[2];
 	outdims[0] = M;
 	outdims[1] = 3;
 	OutArray[0] = mxCreateNumericArray(2, outdims, mxDOUBLE_CLASS, mxREAL);
@@ -381,10 +431,10 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 	outdims[1] = 1;
 	OutArray[1] = mxCreateNumericArray(2, outdims, mxDOUBLE_CLASS, mxREAL);
 	double* tsOut = (double*)mxGetPr(OutArray[1]);
-	memcpy(tsOut, ts, N*sizeof(double));
+	memcpy(tsOut, ts, N*sizeof(double));*/
 	
 	///////////////CLEANUP/////////////////
-	//TODO: Cleanup all allocated stuff
 	delete[] ts;
-	delete[] edgeList;
+	delete[] Ep;
+	delete[] simplices;
 }
