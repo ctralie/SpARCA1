@@ -23,6 +23,11 @@ typedef struct sinf {
 	double dist;
 } SimplexInfo;
 
+typedef struct bdt {
+	double birth;
+	double death;
+} BDTimes;
+
 struct Simplex_DistComparator {
 	bool operator()(SimplexInfo* s1, SimplexInfo* s2) const {
 		if (s1->dist < s2->dist) {
@@ -35,6 +40,28 @@ struct Simplex_DistComparator {
 		return false;
 	}
 };
+
+//Print a sparse matrix (for debugging)
+void printMatrix(vector<int>* M, int n, int m) {
+	int* colPointers = new int[m];
+	for (int i = 0; i < m; i++) {
+		colPointers[i] = 0;
+	}
+	for (int i = 0; i < n; i++) {
+		for (int j = 0; j < m; j++) {
+			int elem = 0;
+			if (colPointers[j] < M[j].size()) {
+				if (i == M[j][colPointers[j]]) {
+					elem = 1;
+					colPointers[j]++;
+				}
+			}
+			mexPrintf("%i ", elem);
+		}
+		mexPrintf("\n");
+	}
+	delete[] colPointers;
+}
 
 //Return the squared distance between X_i and X_j
 double getSqrDist(double* X, int N, int D, int i, int j) {
@@ -87,7 +114,7 @@ void getEdgeRelaxedDist(int p, int q, double* X, int N, int D, double* ts, int* 
 //Return strings for all of the co-dimension 1 faces of the simplex 
 //represented by str, and store them in the vector "cocliques"
 void getCoDim1CliqueStrings(vector<string>& cocliques, string str) {
-	int lasti = 0;
+	size_t lasti = 0;
 	for (size_t i = 0; i < str.size(); i++) {
 		if (str[i] == '_') {
 			//Omit the number between lasti and this index
@@ -120,11 +147,11 @@ void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, m
 
 	map<string, double>::iterator it;
 	
-	//Pre-copy pairwise edge lists from EDists
-	//Cuts down on queries to the 
+	/***Pre-copy pairwise edge lists from EDists***/
+	//Cuts down on queries to the distance map
 	int EpSize = (int)(Ep.size());
 	double* dists = new double[EpSize*EpSize];
-	int i1, i2, index;
+	size_t i1, i2, index;
 	
 	for (size_t i = 0; i < Ep.size(); i++) {
 		for (size_t j = i+1; j < Ep.size(); j++) {
@@ -144,7 +171,7 @@ void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, m
 		} 
 	}
 	
-	//Now find all subsets up to size MaxBetti+2
+	/***Now find all subsets up to size MaxBetti+2***/
 	int MaxClique = min(MaxBetti+2, EpSize);
 	vector<int> cliqueidx;
 	while(true) {
@@ -216,6 +243,70 @@ void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, m
 		}
 	}
 	delete[] dists;
+}
+
+
+
+//Do linear time addition of two sorted columns in the sparse matrix
+//This method assumes that col1 and col2 are in sorted order by TDASimplex.id (the filtration)
+void addColToColMod2(vector<int>& col1, vector<int>& col2) {
+	int i1 = 0, i2 = 0;
+	vector<int> out;
+	while (i1 < (int)col1.size() && i2 < (int)col2.size()) {
+		int id1 = col1[i1];
+		int id2 = col2[i2];
+		if (id1 == id2) {
+			i1++;
+			i2++;
+			//Do nothing; they cancel out mod2 if they are the same
+		}
+		else if (id1 < id2) {
+			//Add the element from col1 first and move down one element on col1
+			out.push_back(col1[i1]);
+			i1++;
+		}
+		else if (id2 < id1) {
+			//Add the element from col2 first and move down one element on col2
+			out.push_back(col2[i2]);
+			i2++;
+		}
+		if (i1 == (int)col1.size()) {
+			//Add the rest of the elements from column 2 if I'm through column 1
+			while (i2 < (int)col2.size()) {
+				out.push_back(col2[i2]);
+				i2++;
+			}
+		}
+		if (i2 == (int)col2.size()) {
+			//Add the rest of the elements from column 1 if I'm through column 2
+			while (i1 < (int)col1.size()) {
+				out.push_back(col1[i1]);
+				i1++;
+			}
+		}
+	}
+	//Overwrite col2 with the result
+	col2.clear();
+	col2.insert(col2.begin(), out.begin(), out.end());
+}
+
+//Add the column "col" to every subsequent column in M that contains the low 
+//element of col in the matrix M, which has m columns
+//This method assumes that the columns M are in sorted order
+void addLowElementToOthers(vector<int>* M, int col, int m) {
+	assert(col >= 0 && col < m);
+	assert(M[col].size() > 0);
+	int low = (M[col])[M[col].size()-1];//The low element is the last element in sorted order
+	for (int j = col+1; j < m; j++) {
+		//Check to see if this column has the low element
+		for (int i = 0; i < M[i].size(); i++) {
+			if (M[j][i] == low) {
+				//This column does contain the low element so add B[col] to it
+				addColToColMod2(M[col], M[j]);
+				break;
+			}
+		}
+	}
 }
 
 //Inputs: *X: NxD point cloud matrix
@@ -304,7 +395,7 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 	vector<int>* Ep = new vector<int>[N];//Proximity lists
 	map<string, double> EDists;//Map from "v1_v2" to relaxed distance
 	
-	//Calculate deletion times based on cover tree info
+	/***Calculate deletion times based on cover tree info***/
 	double* ts = new double[N];
 	for (int i = 0; i < N; i++) {
 		int l = levels[i] - rootLevel;
@@ -313,7 +404,7 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 		//mexPrintf("%g\n", ts[i]);
 	}
 	
-	//Check all pairs of edges to find the sparse list (slow version)
+	/***Check all pairs of edges to find the sparse list (slow version)***/
 	for (int i = 0; i < N; i++) {
 		for (int j = i; j < N; j++) {
 			int e1, e2;
@@ -324,7 +415,7 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 				e2 = j;
 			}
 			else {
-				getEdgeRelaxedDist(i, j, X, N, D, ts, &e1, &e2, &ed);
+				getEdgeRelaxedDist(i, j, X, (int)N, (int)D, ts, &e1, &e2, &ed);
 			}
 			if (e1 != -1 && e2 != -1) {
 				Ep[i].push_back(j);
@@ -337,57 +428,140 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 	}
 	mexPrintf("Finished getting edge list\n");
 	
-	//Check all subsets of proximity lists to detect cliques
+	/***Check all subsets of proximity lists to detect cliques***/
 	map<string, SimplexInfo>* simplices = new map<string, SimplexInfo>[MaxBetti+2];//Index of simplices
-	
 	for (int i = 0; i < N; i++) {
 		mexPrintf("%i of %i\n", i, N);
 		mexEvalString("drawnow");
 		addCliquesFromProximityList(Ep[i], EDists, simplices, MaxBetti);
 	}
 	
-	//Sort the simplices in ascending order of distance
+	/***Sort the simplices in ascending order of distance***/
+	SimplexInfo*** simplexInfoSorted = new SimplexInfo**[MaxBetti+2];
 	for (int k = 0; k < MaxBetti+2; k++) {
 		vector<SimplexInfo*> s;
 		for (map<string,SimplexInfo>::iterator it = simplices[k].begin(); it != simplices[k].end(); it++) {
 			s.push_back(&(it->second));
 		}
 		sort(s.begin(), s.end(), Simplex_DistComparator());
+		simplexInfoSorted[k] = new SimplexInfo*[s.size()];
 		for (size_t i = 0; i < s.size(); i++) {
 			s[i]->index = i;
+			simplexInfoSorted[k][i] = s[i];
 		}
 	}
 	
-	//Debug print
+	/***Debug print number of simplices of each order***/
 	for (int k = 0; k < MaxBetti+2; k++) {
-		mexPrintf("------------------------\nThere are %i %i-simplices\n", simplices[k].size(), k);
-		for (map<string,SimplexInfo>::iterator it = simplices[k].begin(); it != simplices[k].end(); it++) {
+		//Compute number of combinations explicitly
+		int N2 = 0;
+		int numer = 1;
+		for (int i = (int)N; i > (int)N - k - 1; i--) {
+			numer = numer*i;
+		}
+		int denom = 1;
+		for (int i = 1; i <= k+1; i++) {
+			denom = denom*i;
+		}
+		N2 = numer/denom;
+	
+		mexPrintf("------------------------\nThere are %i %i-simplices (%i max possible: %g%%)\n", simplices[k].size(), k, N2, 100*((double)simplices[k].size())/((double)N2));
+		/*for (map<string,SimplexInfo>::iterator it = simplices[k].begin(); it != simplices[k].end(); it++) {
 			string str = it->first;
 			mexPrintf("%s\n", str.c_str());
+		}*/	
+	}
+
+	
+	/***Create the sparse boundary matrices for every level***/
+	vector<int>** Ms = new vector<int>*[MaxBetti+2];
+	for (int k = 0; k < MaxBetti+2; k++) {
+		Ms[k] = new vector<int>[simplices[k].size()];
+		if (k == 0) {
+			continue; //The zero boundary matrix is a dummy one
+		}
+		int j = 0;
+		for (map<string,SimplexInfo>::iterator it = simplices[k].begin(); it != simplices[k].end(); it++) {
+			vector<string> cocliques;
+			getCoDim1CliqueStrings(cocliques, it->first);
+			for (size_t a = 0; a < cocliques.size(); a++) {
+				Ms[k][j].push_back(simplices[k-1][cocliques[a]].index);
+			}
+			//Keep the invariant that sparse columns elements are in order
+			sort(Ms[k][j].begin(), Ms[k][j].end());
+			j++;
 		}		
 	}
 	
-	//Create the sparse boundary matrices for every level
-	
+	/***Reduce the matrices to compute the persistence diagrams***/
+	map<string, BDTimes>* Is = new map<string, BDTimes>[MaxBetti+1];
+	//Assume for now all points are born at 0
+	for (int i = 0; i < N; i++) {
+		stringstream ss;
+		ss << i;
+		Is[0][ss.str()].birth = 0;
+	}
+	//Now reduce the rest of the boundary matrices
+	for (int k = 1; k < MaxBetti+2; k++) {
+		mexPrintf("Reducing %i-dimensional boundary matrix...\n", k);
+		mexEvalString("drawnow");
+		for (size_t j = 0; j < simplices[k].size(); j++) {
+			if (Ms[k][j].size() > 0) {
+				addLowElementToOthers(Ms[k], (int)j, simplices[k].size());
+				//Rank of Mk increases by one, so a (k-1)-class is killed
+				//Pair with the (k-1) co-face that most recently participated in a birth
+				//(the element at the bottom of the column)
+				int killIndex = Ms[k][j][Ms[k][j].size()-1];
+				BDTimes* I = &(Is[k-1][simplexInfoSorted[k-1][killIndex]->str]);
+				I->death = simplexInfoSorted[k][j]->dist;
+				if (I->death == I->birth) {
+					//Don't include classes that are born and die instantly
+					Is[k-1].erase(simplexInfoSorted[k-1][killIndex]->str);
+				}
+			}
+			else {
+				//Kernel of Mk increases by one, so a k-class is born
+				//(Ignore births for the last class)
+				if (k <= MaxBetti) {
+					Is[k][simplexInfoSorted[k][j]->str].birth = simplexInfoSorted[k][j]->dist;
+				}
+			}
+		}
+	}
 	
 	
 	///////////////MEX OUTPUTS/////////////////
-	
-	/*mwSize outdims[2];
-	outdims[0] = M;
-	outdims[1] = 3;
-	OutArray[0] = mxCreateNumericArray(2, outdims, mxDOUBLE_CLASS, mxREAL);
-	double* edgeListOut = (double*)mxGetPr(OutArray[0]);
-	memcpy(edgeListOut, edgeList, M*3*sizeof(double));
-	
-	outdims[0] = N;
-	outdims[1] = 1;
-	OutArray[1] = mxCreateNumericArray(2, outdims, mxDOUBLE_CLASS, mxREAL);
-	double* tsOut = (double*)mxGetPr(OutArray[1]);
-	memcpy(tsOut, ts, N*sizeof(double));*/
+	/***Output a cell array holding all of the persistence diagrams***/
+	mwSize outDims[2];
+	outDims[0] = MaxBetti+1;
+	outDims[1] = 1;
+	OutArray[0] = mxCreateCellArray(2, outDims);
+	mxArray* cellArrayPtr = OutArray[0];
+	for (int k = 0; k < MaxBetti+1; k++) {
+		mxArray* I = mxCreateDoubleMatrix(Is[k].size(), 2, mxREAL);
+		double* IArray = mxGetPr(I);
+		int i = 0;
+		for (map<string,BDTimes>::iterator it = Is[k].begin(); it != Is[k].end(); it++) {
+			IArray[i] = it->second.birth;
+			IArray[i+Is[k].size()] = it->second.death;
+			i++;
+		}
+		//Place the matrix into the cell array
+		mxSetCell(cellArrayPtr, k, I);
+	}
+
 	
 	///////////////CLEANUP/////////////////
-	delete[] ts;
+	delete[] Is;
+	for (int i = 0; i < MaxBetti+2; i++) {
+		delete[] Ms[i];
+	}
+	delete[] Ms;
+	for (int i = 0; i < MaxBetti+2; i++) {
+		delete[] simplexInfoSorted[i];
+	}
+	delete[] simplexInfoSorted;
+	delete[] simplices;	
 	delete[] Ep;
-	delete[] simplices;
+	delete[] ts;
 }
