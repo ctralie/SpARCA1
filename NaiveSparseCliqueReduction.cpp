@@ -146,9 +146,9 @@ void getCoDim1CliqueStrings(vector<string>& cocliques, string str) {
 	cocliques.push_back(str.substr(0, lasti));
 }
 
-//Check all subsets of a proximity list to find cliques by 
-//using binary counting
-void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, map<string, SimplexInfo>* simplices, int MaxBetti) {
+//Loop through all subsets of a proximity list to up to 
+//size MaxBetti+2 to find cliques
+void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, map<string, SimplexInfo>* simplices, int MaxBetti) {up 
 	if (Ep.size() == 0) {
 		mexPrintf("Warning: Ep.size() = 0\n");
 		return;
@@ -267,7 +267,7 @@ void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, m
 }
 
 //Do linear time addition of two sorted columns in the sparse matrix
-//This method assumes that col1 and col2 are in sorted order by TDASimplex.id (the filtration)
+//This method assumes that col1 and col2 are in sorted order
 void addColToColMod2(vector<int>& col1, vector<int>& col2) {
 	int i1 = 0, i2 = 0;
 	vector<int> out;
