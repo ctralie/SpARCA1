@@ -16,7 +16,7 @@
 
 using namespace std;
 
-#define VERBOSE 1
+#define VERBOSE 0
 
 typedef struct sinf {
 	string str;//TODO: Make this a pointer?
@@ -113,6 +113,14 @@ void getEdgeRelaxedDist(int p, int q, double* X, int N, int D, double* ts, int* 
 	*e2 = -1;
 }
 
+//Function returns the original (unwarped) metric
+void getEdgeUnwarpedDist(int p, int q, double* X, int N, int D, double* ts, int* e1, int* e2, double* ed) {
+	double dpq = sqrt(getSqrDist(X, N, D, p, q));
+	*e1 = p;
+	*e2 = q;
+	*ed = dpq;
+}
+
 //Return strings for all of the co-dimension 1 faces of the simplex 
 //represented by str, and store them in the vector "cocliques"
 void getCoDim1CliqueStrings(vector<string>& cocliques, string str) {
@@ -134,6 +142,8 @@ void getCoDim1CliqueStrings(vector<string>& cocliques, string str) {
 			lasti = i;
 		}
 	}
+	//Add the last string resulting from omitting the last element
+	cocliques.push_back(str.substr(0, lasti));
 }
 
 //Check all subsets of a proximity list to find cliques by 
@@ -256,8 +266,6 @@ void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, m
 	delete[] dists;
 }
 
-
-
 //Do linear time addition of two sorted columns in the sparse matrix
 //This method assumes that col1 and col2 are in sorted order by TDASimplex.id (the filtration)
 void addColToColMod2(vector<int>& col1, vector<int>& col2) {
@@ -310,9 +318,9 @@ void addLowElementToOthers(vector<int>* M, int col, int m) {
 	int low = (M[col])[M[col].size()-1];//The low element is the last element in sorted order
 	for (int j = col+1; j < m; j++) {
 		//Check to see if this column has the low element
-		for (int i = 0; i < M[j].size(); i++) {
+		for (size_t i = 0; i < M[j].size(); i++) {
 			if (M[j][i] == low) {
-				//This column does contain the low element so add B[col] to it
+				//This column does contain the low element so add M[col] to it
 				addColToColMod2(M[col], M[j]);
 				break;
 			}
@@ -411,9 +419,7 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 	double* ts = new double[N];
 	for (int i = 0; i < N; i++) {
 		int l = levels[i] - rootLevel;
-		//mexPrintf("l = %i, t%i = ", l, i);
 		ts[i] = 9*radii[l]/theta;//9*radius of parent
-		//mexPrintf("%g\n", ts[i]);
 	}
 	
 	/***Check all pairs of edges to find the sparse list (slow version)***/
@@ -431,6 +437,7 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 			}
 			else {
 				getEdgeRelaxedDist(i, j, X, (int)N, (int)D, ts, &e1, &e2, &ed);
+				//getEdgeUnwarpedDist(i, j, X, (int)N, (int)D, ts, &e1, &e2, &ed);
 				if (e1 != -1 && e2 != -1) {					
 					Ep[i].push_back(j);
 					Ep[j].push_back(i);
@@ -470,7 +477,7 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 		}
 	}
 	
-	/***Debug print number of simplices of each order***/
+	/***Print number of simplices of each order and report savings***/
 	for (int k = 0; k < MaxBetti+2; k++) {
 		//Compute number of combinations explicitly
 		int N2 = 0;
@@ -485,10 +492,6 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 		N2 = numer/denom;
 	
 		mexPrintf("------------------------\nThere are %i %i-simplices (%i max possible: %g%%)\n", simplices[k].size(), k, N2, 100*((double)simplices[k].size())/((double)N2));
-/*		for (map<string,SimplexInfo>::iterator it = simplices[k].begin(); it != simplices[k].end(); it++) {
-			string str = it->first;
-			mexPrintf("%s\n", str.c_str());
-		}*/
 	}
 
 	
@@ -508,17 +511,16 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 			}
 			//Keep the invariant that sparse columns elements are in order
 			sort(Ms[k][j].begin(), Ms[k][j].end());
-			j++;
-		}		
+		}	
 	}
 	
 	/***Reduce the matrices to compute the persistence diagrams***/
-	map<string, BDTimes>* Is = new map<string, BDTimes>[MaxBetti+1];
+	//Index the homology classes by the index of their birthing simplex
+	map<int, BDTimes>* Is = new map<int, BDTimes>[MaxBetti+1];
 	//Assume for now all points are born at 0
 	for (int i = 0; i < N; i++) {
-		stringstream ss;
-		ss << i;
-		Is[0][ss.str()].birth = 0;
+		Is[0][i].birth = 0;
+		Is[0][i].death = -1;
 	}
 	//Now reduce the rest of the boundary matrices
 	mexPrintf("\n\n");
@@ -526,13 +528,23 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 		mexPrintf("Reducing %i-dimensional boundary matrix...\n", k);
 		mexEvalString("drawnow");
 		for (size_t j = 0; j < simplices[k].size(); j++) {
+			//mexPrintf(" %g",  simplexInfoSorted[k][j]->dist);
 			if (Ms[k][j].size() > 0) {
+				//mexPrintf("(1)");
 				addLowElementToOthers(Ms[k], (int)j, simplices[k].size());
 				//Rank of Mk increases by one, so a (k-1)-class is killed
 				//Pair with the (k-1) co-face that most recently participated in a birth
 				//(the element at the bottom of the column)
 				int killIndex = Ms[k][j][Ms[k][j].size()-1];
-				BDTimes* I = &(Is[k-1][simplexInfoSorted[k-1][killIndex]->str]);
+				map<int, BDTimes>::iterator iter = Is[k-1].find(killIndex);
+				if (iter == Is[k-1].end()) {
+					mexPrintf("Error: Trying to pair a death with a simplex that never gave rise to a birth\n");
+					continue;
+				}
+				BDTimes* I = &(iter->second);
+				if (I->death != -1) {
+					mexPrintf("Warning: Trying to kill class that's already been killed at %g\n", I->death);
+				}
 				I->death = simplexInfoSorted[k][j]->dist;
 				if (VERBOSE) {
 					mexPrintf("%iD class born with simplex %s ", k-1, simplexInfoSorted[k-1][killIndex]->str.c_str());
@@ -541,15 +553,17 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 				}
 				if (I->death == I->birth) {
 					//Don't include classes that are born and die instantly
-					Is[k-1].erase(simplexInfoSorted[k-1][killIndex]->str);
+					Is[k-1].erase(killIndex);
 				}
 			}
 			else {
 				//Kernel of Mk increases by one, so a k-class is born
 				//(Ignore births for the last class)
 				if (k <= MaxBetti) {
-					Is[k][simplexInfoSorted[k][j]->str].birth = simplexInfoSorted[k][j]->dist;
-					Is[k][simplexInfoSorted[k][j]->str].death = -1;
+					BDTimes bd;
+					bd.birth = simplexInfoSorted[k][j]->dist;
+					bd.death = -1;
+					(Is[k])[j] = bd;
 				}
 			}
 		}
@@ -566,7 +580,7 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 		mxArray* I = mxCreateDoubleMatrix(Is[k].size(), 2, mxREAL);
 		double* IArray = mxGetPr(I);
 		int i = 0;
-		for (map<string,BDTimes>::iterator it = Is[k].begin(); it != Is[k].end(); it++) {
+		for (map<int,BDTimes>::iterator it = Is[k].begin(); it != Is[k].end(); it++) {
 			IArray[i] = it->second.birth;
 			IArray[i+Is[k].size()] = it->second.death;
 			i++;
