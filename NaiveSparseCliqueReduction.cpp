@@ -16,6 +16,8 @@
 
 using namespace std;
 
+#define VERBOSE 1
+
 typedef struct sinf {
 	string str;//TODO: Make this a pointer?
 	size_t index;
@@ -141,8 +143,10 @@ void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, m
 		mexPrintf("Warning: Ep.size() = 0\n");
 		return;
 	}
-	mexPrintf("Ep.size() = %i\n", Ep.size());
-	mexEvalString("drawnow");
+	if (VERBOSE) {
+		mexPrintf("Ep.size() = %i\n", Ep.size());
+		mexEvalString("drawnow");
+	}
 	stringstream ss;
 
 	map<string, double>::iterator it;
@@ -154,6 +158,9 @@ void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, m
 	size_t i1, i2, index;
 	
 	for (size_t i = 0; i < Ep.size(); i++) {
+		if (VERBOSE) {
+			mexPrintf("%i ", Ep[i]);
+		}
 		for (size_t j = i+1; j < Ep.size(); j++) {
 			ss.str("");
 			ss << Ep[i] << "_" << Ep[j];
@@ -169,6 +176,10 @@ void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, m
 				dists[i2] = it->second;
 			}
 		} 
+	}
+	if (VERBOSE) {
+		mexPrintf("\n");
+		mexEvalString("drawnow");
 	}
 	
 	/***Now find all subsets up to size MaxBetti+2***/
@@ -299,7 +310,7 @@ void addLowElementToOthers(vector<int>* M, int col, int m) {
 	int low = (M[col])[M[col].size()-1];//The low element is the last element in sorted order
 	for (int j = col+1; j < m; j++) {
 		//Check to see if this column has the low element
-		for (int i = 0; i < M[i].size(); i++) {
+		for (int i = 0; i < M[j].size(); i++) {
 			if (M[j][i] == low) {
 				//This column does contain the low element so add B[col] to it
 				addColToColMod2(M[col], M[j]);
@@ -392,6 +403,7 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 	MaxBetti = (int)(*((double*)mxGetPr(InArray[5])));
 	
 	///////////////ALGORITHM/////////////////
+	mexPrintf("\n\n=== Running Chris Tralie's sparse clique reduction for higher homology ====\n");
 	vector<int>* Ep = new vector<int>[N];//Proximity lists
 	map<string, double> EDists;//Map from "v1_v2" to relaxed distance
 	
@@ -410,31 +422,38 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 			int e1, e2;
 			double ed;
 			if (i == j) {
-				ed = 0;//Include the vertex itself in the proximity list
-				e1 = i;
-				e2 = j;
+				//Include the vertex itself in the proximity list
+				Ep[i].push_back(i);
+				ed = 0;
+				stringstream ss;
+				ss << i << "_" << j;
+				EDists[ss.str()] = ed;			
 			}
 			else {
 				getEdgeRelaxedDist(i, j, X, (int)N, (int)D, ts, &e1, &e2, &ed);
+				if (e1 != -1 && e2 != -1) {					
+					Ep[i].push_back(j);
+					Ep[j].push_back(i);
+					stringstream ss;
+					ss << i << "_" << j;
+					EDists[ss.str()] = ed;				
+				}
 			}
-			if (e1 != -1 && e2 != -1) {
-				Ep[i].push_back(j);
-				Ep[j].push_back(i);
-				stringstream ss;
-				ss << i << "_" << j;
-				EDists[ss.str()] = ed;				
-			}
+
 		}
 	}
 	mexPrintf("Finished getting edge list\n");
-	
+	mexPrintf("Checking proximity list subsets to find cliques...");
 	/***Check all subsets of proximity lists to detect cliques***/
 	map<string, SimplexInfo>* simplices = new map<string, SimplexInfo>[MaxBetti+2];//Index of simplices
 	for (int i = 0; i < N; i++) {
-		mexPrintf("%i of %i\n", i, N);
+		if (i % 50 == 0)
+			mexPrintf("\n");
+		mexPrintf(".", i, N);
 		mexEvalString("drawnow");
 		addCliquesFromProximityList(Ep[i], EDists, simplices, MaxBetti);
 	}
+	mexPrintf("\n\n");
 	
 	/***Sort the simplices in ascending order of distance***/
 	SimplexInfo*** simplexInfoSorted = new SimplexInfo**[MaxBetti+2];
@@ -466,10 +485,10 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 		N2 = numer/denom;
 	
 		mexPrintf("------------------------\nThere are %i %i-simplices (%i max possible: %g%%)\n", simplices[k].size(), k, N2, 100*((double)simplices[k].size())/((double)N2));
-		/*for (map<string,SimplexInfo>::iterator it = simplices[k].begin(); it != simplices[k].end(); it++) {
+/*		for (map<string,SimplexInfo>::iterator it = simplices[k].begin(); it != simplices[k].end(); it++) {
 			string str = it->first;
 			mexPrintf("%s\n", str.c_str());
-		}*/	
+		}*/
 	}
 
 	
@@ -480,12 +499,12 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 		if (k == 0) {
 			continue; //The zero boundary matrix is a dummy one
 		}
-		int j = 0;
-		for (map<string,SimplexInfo>::iterator it = simplices[k].begin(); it != simplices[k].end(); it++) {
+		for (int j = 0; j < simplices[k].size(); j++) {
 			vector<string> cocliques;
-			getCoDim1CliqueStrings(cocliques, it->first);
+			getCoDim1CliqueStrings(cocliques, simplexInfoSorted[k][j]->str);
 			for (size_t a = 0; a < cocliques.size(); a++) {
-				Ms[k][j].push_back(simplices[k-1][cocliques[a]].index);
+				int cofaceIndex = simplices[k-1][cocliques[a]].index;
+				Ms[k][j].push_back(cofaceIndex);
 			}
 			//Keep the invariant that sparse columns elements are in order
 			sort(Ms[k][j].begin(), Ms[k][j].end());
@@ -502,6 +521,7 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 		Is[0][ss.str()].birth = 0;
 	}
 	//Now reduce the rest of the boundary matrices
+	mexPrintf("\n\n");
 	for (int k = 1; k < MaxBetti+2; k++) {
 		mexPrintf("Reducing %i-dimensional boundary matrix...\n", k);
 		mexEvalString("drawnow");
@@ -514,6 +534,11 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 				int killIndex = Ms[k][j][Ms[k][j].size()-1];
 				BDTimes* I = &(Is[k-1][simplexInfoSorted[k-1][killIndex]->str]);
 				I->death = simplexInfoSorted[k][j]->dist;
+				if (VERBOSE) {
+					mexPrintf("%iD class born with simplex %s ", k-1, simplexInfoSorted[k-1][killIndex]->str.c_str());
+					mexPrintf("killed by simplex %s ", simplexInfoSorted[k][j]->str.c_str());
+					mexPrintf("(dist %g)\n", I->death);
+				}
 				if (I->death == I->birth) {
 					//Don't include classes that are born and die instantly
 					Is[k-1].erase(simplexInfoSorted[k-1][killIndex]->str);
@@ -524,11 +549,11 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 				//(Ignore births for the last class)
 				if (k <= MaxBetti) {
 					Is[k][simplexInfoSorted[k][j]->str].birth = simplexInfoSorted[k][j]->dist;
+					Is[k][simplexInfoSorted[k][j]->str].death = -1;
 				}
 			}
 		}
-	}
-	
+	}	
 	
 	///////////////MEX OUTPUTS/////////////////
 	/***Output a cell array holding all of the persistence diagrams***/
