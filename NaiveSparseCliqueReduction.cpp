@@ -13,6 +13,7 @@
 #include <assert.h>
 #include <map>
 #include <sstream>
+#include <list>
 
 using namespace std;
 
@@ -148,7 +149,7 @@ void getCoDim1CliqueStrings(vector<string>& cocliques, string str) {
 
 //Loop through all subsets of a proximity list to up to 
 //size MaxBetti+2 to find cliques
-void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, map<string, SimplexInfo>* simplices, int MaxBetti) {up 
+void addCliquesFromProximityList(vector<int>& Ep, map<string, double>& EDists, map<string, SimplexInfo>* simplices, int MaxBetti) {
 	if (Ep.size() == 0) {
 		mexPrintf("Warning: Ep.size() = 0\n");
 		return;
@@ -310,13 +311,15 @@ void addColToColMod2(vector<int>& col1, vector<int>& col2) {
 }
 
 //Add the column "col" to every subsequent column in M that contains the low 
-//element of col in the matrix M, which has m columns
+//element of col in the matrix M.  "nzc" contains the nonzero columns to the right
+//of "col" that need to be checked 
 //This method assumes that the columns M are in sorted order
-void addLowElementToOthers(vector<int>* M, int col, int m) {
-	assert(col >= 0 && col < m);
+void addLowElementToOthers(vector<int>* M, int col, list<int>& nzc) {
 	assert(M[col].size() > 0);
 	int low = (M[col])[M[col].size()-1];//The low element is the last element in sorted order
-	for (int j = col+1; j < m; j++) {
+	list<int>::iterator iter = nzc.begin();
+	while (iter != nzc.end()) {
+		int j = *iter;
 		//Check to see if this column has the low element
 		for (size_t i = 0; i < M[j].size(); i++) {
 			if (M[j][i] == low) {
@@ -324,6 +327,12 @@ void addLowElementToOthers(vector<int>* M, int col, int m) {
 				addColToColMod2(M[col], M[j]);
 				break;
 			}
+		}
+		if (M[j].size() == 0) {
+			iter = nzc.erase(iter);
+		}
+		else {
+			iter++;
 		}
 	}
 }
@@ -525,13 +534,20 @@ void mexFunction(int nOutArray, mxArray *OutArray[], int nInArray, const mxArray
 	//Now reduce the rest of the boundary matrices
 	mexPrintf("\n\n");
 	for (int k = 1; k < MaxBetti+2; k++) {
+		//Keep track of the nonzero columns to speed up reduction
+		list<int> nonzerocolumns;
+		for (int j = 1; j < (int)simplices[k].size(); j++) {
+			nonzerocolumns.push_back(j);
+		}
 		mexPrintf("Reducing %i-dimensional boundary matrix...\n", k);
 		mexEvalString("drawnow");
 		for (size_t j = 0; j < simplices[k].size(); j++) {
-			//mexPrintf(" %g",  simplexInfoSorted[k][j]->dist);
 			if (Ms[k][j].size() > 0) {
-				//mexPrintf("(1)");
-				addLowElementToOthers(Ms[k], (int)j, simplices[k].size());
+				addLowElementToOthers(Ms[k], (int)j, nonzerocolumns);
+				if (nonzerocolumns.size() > 0) {
+					list<int>::iterator iternzc = nonzerocolumns.begin();
+					nonzerocolumns.erase(iternzc);
+				}
 				//Rank of Mk increases by one, so a (k-1)-class is killed
 				//Pair with the (k-1) co-face that most recently participated in a birth
 				//(the element at the bottom of the column)
