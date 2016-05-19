@@ -34,7 +34,7 @@ def getSparseEdgeList(lambdaso, eps, D):
     
     #Create initial sparse list candidates (Lemma 6)
     nBounds = ((eps**2+3*eps+2)/eps)*lambdaso #Search neighborhoods    
-    D[D > nBounds[:, 0]] = np.inf #Set all distances outside of search neighborhood to infinity
+    D[D > nBounds[:, None]] = np.inf #Set all distances outside of search neighborhood to infinity
     [I, J] = np.meshgrid(np.arange(N), np.arange(N))
     I = I[D < np.inf]
     J = J[D < np.inf]
@@ -49,13 +49,11 @@ def getSparseEdgeList(lambdaso, eps, D):
     I = I[t]
     J = J[t]
     D = D[t]
+    lambdas = lambdas[t, :]
     t = np.ones(len(I))
     t[D <= 2*lambdas[:, 0]*(1+eps)/eps] = 0
-    D[t == 1] = 2.0*(D[t == 1] - lambdas[:, 0]*(1+eps)/eps) #Multiply by 2 since this is Rips not Cech
-    
-    #Return edges sorted by weight
-    idx = np.argsort(D)
-    return (I[idx], J[idx], D[idx])
+    D[t == 1] = 2.0*(D[t == 1] - lambdas[t == 1, 0]*(1+eps)/eps) #Multiply by 2 since this is Rips not Cech
+    return (I, J, D)
 
 if __name__ == '__main__':
     #Step 1: Load in point cloud
@@ -80,18 +78,31 @@ if __name__ == '__main__':
     D[D < 0] = 0 #Numerical precision
     D = np.sqrt(D)
     
-    #Step 3: Compute greedy permutation
-    (perm, lambdas) = getGreedyPerm(D)
-    
-    #Step 4: Compute the warped edge list
-    #Put the insertion radii back in the order of the array
-    lambdaso = np.zeros(len(lambdas))
-    lambdaso[perm] = lambdas
-    (I, J, D) = getSparseEdgeList(lambdaso, eps, D)
+    I = []
+    J = []
+    #Step 2.5: If epsilon is zero, we're done (use all edges)
+    if eps == 0:
+        [I, J] = np.meshgrid(np.arange(N), np.arange(N))
+        idx = (I > J)
+        I = I[idx == 1]
+        J = J[idx == 1]
+        D = D[idx == 1]
+    else:
+        #Step 3: Compute greedy permutation
+        (perm, lambdas) = getGreedyPerm(D)
+        
+        #Step 4: Compute the warped edge list
+        #Put the insertion radii back in the order of the array
+        lambdaso = np.zeros(len(lambdas))
+        lambdaso[perm] = lambdas
+        (I, J, D) = getSparseEdgeList(lambdaso, eps, D)
     
     #Step 5: Write to file
+    #First sort edges by weight
+    idx = np.argsort(D)
+    [I, J, D] = [I[idx], J[idx], D[idx]]
     fout = open(argv[3], 'w')
     fout.write("p edge %i %i\n"%(N, len(I)))
-    for i in range(len(idx)):
+    for i in range(len(I)):
         fout.write("e %i %i %g\n"%(I[i], J[i], D[i]))
     fout.close()
