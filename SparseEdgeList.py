@@ -36,9 +36,10 @@ def getSparseEdgeList(lambdaso, eps, D):
     nBounds = ((eps**2+3*eps+2)/eps)*lambdaso #Search neighborhoods    
     D[D > nBounds[:, None]] = np.inf #Set all distances outside of search neighborhood to infinity
     [I, J] = np.meshgrid(np.arange(N), np.arange(N))
-    I = I[D < np.inf]
-    J = J[D < np.inf]
-    D = D[D < np.inf]
+    idx = I > J
+    I = I[(D < np.inf)*(idx == 1)]
+    J = J[(D < np.inf)*(idx == 1)]
+    D = D[(D < np.inf)*(idx == 1)]
     
     #Prune sparse list and update warped edge lengths (Algorithm 3 pg. 14)
     lambdas = np.zeros((len(I), 2))
