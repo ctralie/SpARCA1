@@ -31,6 +31,8 @@ def getGreedyPerm(D):
 #D (NxN distance matrix, okay to modify because last time it's used)
 def getSparseEdgeList(lambdaso, eps, D):
     N = D.shape[0]
+    E0 = (1+eps)/eps
+    E1 = (1+eps)**2/eps
     
     #Create initial sparse list candidates (Lemma 6)
     nBounds = ((eps**2+3*eps+2)/eps)*lambdaso #Search neighborhoods    
@@ -40,20 +42,28 @@ def getSparseEdgeList(lambdaso, eps, D):
     I = I[(D < np.inf)*(idx == 1)]
     J = J[(D < np.inf)*(idx == 1)]
     D = D[(D < np.inf)*(idx == 1)]
+    print "Checking %i of %i edges"%(len(I), N*(N-1)/2)
     
     #Prune sparse list and update warped edge lengths (Algorithm 3 pg. 14)
-    lambdas = np.zeros((len(I), 2))
-    lambdas[:, 0] = np.minimum(lambdaso[I], lambdaso[J])
-    lambdas[:, 1] = np.maximum(lambdaso[I], lambdaso[J])
+    minlam = np.minimum(lambdaso[I], lambdaso[J])
+    maxlam = np.maximum(lambdaso[I], lambdaso[J])
+    #Rule out edges between vertices whose balls stop growing before they touch
+    #or where one of them would have been deleted.  M stores which of these
+    #happens first
+    M = np.minimum((E0 + E1)*minlam, E0*(minlam + maxlam))
+    #M = E0*(minlam+maxlam)
+    
     t = np.arange(len(I))
-    t = t[D <= np.sum(lambdas, 1)*(1+eps)/eps]
-    I = I[t]
-    J = J[t]
-    D = D[t]
-    lambdas = lambdas[t, :]
+    t = t[D <= M]
+    (I, J, D) = (I[t], J[t], D[t])
+    minlam = minlam[t]
+    maxlam = maxlam[t]
+    
+    #Now figure out the metric of the edges that are actually added
     t = np.ones(len(I))
-    t[D <= 2*lambdas[:, 0]*(1+eps)/eps] = 0
-    D[t == 1] = 2.0*(D[t == 1] - lambdas[t == 1, 0]*(1+eps)/eps) #Multiply by 2 since this is Rips not Cech
+    t[D <= 2*minlam*E0] = 0 #If cones haven't turned into cylinders, metric is unchanged
+    #Otherwise, if they meet before the M condition above, the metric is warped
+    D[t == 1] = 2.0*(D[t == 1] - minlam[t == 1]*E0) #Multiply by 2 convention
     return (I, J, D)
 
 if __name__ == '__main__':
@@ -85,9 +95,7 @@ if __name__ == '__main__':
     if eps == 0:
         [I, J] = np.meshgrid(np.arange(N), np.arange(N))
         idx = (I > J)
-        I = I[idx == 1]
-        J = J[idx == 1]
-        D = D[idx == 1]
+        (I, J, D) = (I[idx == 1], J[idx == 1], D[idx == 1])
     else:
         #Step 3: Compute greedy permutation
         (perm, lambdas) = getGreedyPerm(D)
@@ -97,6 +105,8 @@ if __name__ == '__main__':
         lambdaso = np.zeros(len(lambdas))
         lambdaso[perm] = lambdas
         (I, J, D) = getSparseEdgeList(lambdaso, eps, D)
+    
+    print "%i / %i possible edges added (%.3g%%)"%(len(I), N*(N-1)/2, 100*float(len(I))/(N*(N-1)/2))
     
     #Step 5: Write to file
     #First sort edges by weight
