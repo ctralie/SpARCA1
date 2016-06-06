@@ -115,5 +115,5 @@ if __name__ == '__main__':
     fout = open(argv[3], 'w')
     fout.write("p edge %i %i\n"%(N, len(I)))
     for i in range(len(I)):
-        fout.write("e %i %i %g\n"%(I[i], J[i], D[i]))
+        fout.write("e %i %i %g\n"%(min(I[i], J[i]), max(I[i], J[i]), D[i]))
     fout.close()
