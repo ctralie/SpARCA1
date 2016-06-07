@@ -6,7 +6,6 @@
 from sys import argv, exit
 import numpy as np
 
-
 #Purpose: Naive O(N^2) algorithm to do the greedy permutation
 #Inputs: D (NxN distance matrix for points)
 #Returns: (permutation (N-length array of indices), 
@@ -66,6 +65,45 @@ def getSparseEdgeList(lambdaso, eps, D):
     D[t == 1] = 2.0*(D[t == 1] - minlam[t == 1]*E0) #Multiply by 2 convention
     return (I, J, D)
 
+def makeComplex(X, eps):
+    N = X.shape[0]
+    #Step 1: Compute all pairwise distances
+    XSqr = np.sum(X**2, 1)
+    D = XSqr[:, None] + XSqr[None, :] - 2*X.dot(X.T)
+    D[D < 0] = 0 #Numerical precision
+    D = np.sqrt(D)
+    
+    I = []
+    J = []
+    #Step 1.5: If epsilon is zero, we're done (use all edges)
+    if eps == 0:
+        [I, J] = np.meshgrid(np.arange(N), np.arange(N))
+        idx = (I > J)
+        (I, J, D) = (I[idx == 1], J[idx == 1], D[idx == 1])
+    else:
+        #Step 2: Compute greedy permutation
+        (perm, lambdas) = getGreedyPerm(D)
+        
+        #Step 3: Compute the warped edge list
+        #Put the insertion radii back in the order of the array
+        lambdaso = np.zeros(len(lambdas))
+        lambdaso[perm] = lambdas
+        (I, J, D) = getSparseEdgeList(lambdaso, eps, D)
+    
+    print "%i / %i possible edges added (%.3g%%)"%(len(I), N*(N-1)/2, 100*float(len(I))/(N*(N-1)/2))
+    return (I, J, D)
+
+def writeResults(I, J, D, N, filename):
+    #Step 5: Write to file
+    #First sort edges by weight
+    idx = np.argsort(D)
+    [I, J, D] = [I[idx], J[idx], D[idx]]
+    fout = open(filename, 'w')
+    fout.write("p edge %i %i\n"%(N, len(I)))
+    for i in range(len(I)):
+        fout.write("e %i %i %g\n"%(min(I[i], J[i]), max(I[i], J[i]), D[i]))
+    fout.close()
+
 if __name__ == '__main__':
     #Step 1: Load in point cloud
     if len(argv) < 4:
@@ -79,41 +117,9 @@ if __name__ == '__main__':
     X = fin.readlines()
     for i in range(len(X)):
         X[i] = [float(x) for x in X[i].split()]
-    N = len(X)
     X = np.array(X)
     eps = float(argv[2])
     
-    #Step 2: Compute all pairwise distances
-    XSqr = np.sum(X**2, 1)
-    D = XSqr[:, None] + XSqr[None, :] - 2*X.dot(X.T)
-    D[D < 0] = 0 #Numerical precision
-    D = np.sqrt(D)
-    
-    I = []
-    J = []
-    #Step 2.5: If epsilon is zero, we're done (use all edges)
-    if eps == 0:
-        [I, J] = np.meshgrid(np.arange(N), np.arange(N))
-        idx = (I > J)
-        (I, J, D) = (I[idx == 1], J[idx == 1], D[idx == 1])
-    else:
-        #Step 3: Compute greedy permutation
-        (perm, lambdas) = getGreedyPerm(D)
-        
-        #Step 4: Compute the warped edge list
-        #Put the insertion radii back in the order of the array
-        lambdaso = np.zeros(len(lambdas))
-        lambdaso[perm] = lambdas
-        (I, J, D) = getSparseEdgeList(lambdaso, eps, D)
-    
-    print "%i / %i possible edges added (%.3g%%)"%(len(I), N*(N-1)/2, 100*float(len(I))/(N*(N-1)/2))
-    
-    #Step 5: Write to file
-    #First sort edges by weight
-    idx = np.argsort(D)
-    [I, J, D] = [I[idx], J[idx], D[idx]]
-    fout = open(argv[3], 'w')
-    fout.write("p edge %i %i\n"%(N, len(I)))
-    for i in range(len(I)):
-        fout.write("e %i %i %g\n"%(min(I[i], J[i]), max(I[i], J[i]), D[i]))
-    fout.close()
+    (I, J, D) = makeComplex(X, eps)
+    writeResults(I, J, D, X.shape[0], argv[3])
+
