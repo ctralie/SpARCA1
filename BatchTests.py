@@ -1,10 +1,11 @@
 import subprocess
 import os
 import numpy as np
+import time
 from TestPointClouds import *
 from SparseEdgeList import *
 
-def plotDGM(dgm, color = 'b', sz = 20):
+def plotDGM(dgm, color = 'b', sz = 20, label = 'dgm'):
     # Create Lists
     X = list(zip(*dgm)[0]);
     Y = list(zip(*dgm)[1]);
@@ -13,7 +14,7 @@ def plotDGM(dgm, color = 'b', sz = 20):
     axMax = max(max(X),max(Y));
     axRange = axMax-axMin;
     # plot points
-    plt.scatter(X, Y, sz, color)
+    plt.scatter(X, Y, sz, color,label=label)
     plt.hold(True)
     # plot line
     plt.plot([axMin-axRange/5,axMax+axRange/5], [axMin-axRange/5, axMax+axRange/5],'k');
@@ -23,10 +24,20 @@ def plotDGM(dgm, color = 'b', sz = 20):
     plt.xlabel('Time of Birth')
     plt.ylabel('Time of Death')
 
+def plot2DGMs(P1, P2, l1 = 'Diagram 1', l2 = 'Diagram 2'):
+    plotDGM(P1, 'r', 10, label = l1)
+    plt.hold(True)
+    plt.plot(P2[:, 0], P2[:, 1], 'bx', label = l2)
+    plt.legend()
+    plt.xlabel("Birth Time")
+    plt.ylabel("Death Time")
+
 def savePD(filename, I):
+    if os.path.exists(filename):
+        os.remove(filename)
     fout = open(filename, "w")
     for i in range(I.shape[0]):
-        fout.write("%g %g"%(X[i, 0], X[i, 1]))
+        fout.write("%g %g"%(I[i, 0], I[i, 1]))
         if i < I.shape[0]-1:
             fout.write("\n")
     fout.close()
@@ -37,7 +48,7 @@ def getInterleavingDist(PD1, PD2):
     savePD("PD2.txt", np.log(PD2))
     proc = subprocess.Popen(["./bottleneck", "PD1.txt", "PD2.txt"], stdout=subprocess.PIPE)
     lnd = float(proc.stdout.readline())
-    return np.exp(lnd)
+    return np.exp(lnd) - 1.0 #Interleaving dist is 1 + eps
 
 def getBottleneckDist(PD1, PD2):
     savePD("PD1.txt", PD1)
@@ -72,15 +83,23 @@ def getPDs(I, J, D, N, m):
     subprocess.call(["./phatclique", "-i", "temp.dimacs", "-m", "%i"%m, "-o" "temp.results"])
     return parsePDs("temp.results")
 
-if __name__ == '__main__':
+def doRandCircleTest():
     np.random.seed(100)
     X = getRandCircle(100)
     N = X.shape[0]
     (I, J, D) = makeComplex(X, 0)
     PDsFull = getPDs(I, J, D, N, 3)
     
-    (I, J, D) = makeComplex(X, 0.2)
+    (I, J, D) = makeComplex(X, 0.1)
     PDsApprox = getPDs(I, J, D, N, 3)
+    
+    print "Interleaving Dist Eps: ", getInterleavingDist(PDsFull[1], PDsApprox[1])
+    print "Bottleneck Dist: ", getBottleneckDist(PDsFull[1], PDsApprox[1])
+    [b, d, b1, d1] = [PDsFull[1][0, 0], PDsFull[1][0, 1], I[0, 0], I[0, 1]]
+    print "b/b1 = %g/%g = "%(b, b1), b/b1
+    print "b1/b = %g/%g = "%(b1, b), b1/b
+    print "d/d1 = %g/%g = "%(d, d1), d/d1
+    print "d1/d = %g/%g = "%(d1, d), d1/d
     
     plt.subplot(121)
     plt.plot(X[:, 0], X[:, 1], '.')
@@ -91,3 +110,81 @@ if __name__ == '__main__':
     plt.plot(I[:, 0], I[:, 1], 'bx')
     plt.title('Persistence Diagram')
     plt.show()
+
+def doBatchTestsShape(X, dim, TestName):
+    N = X.shape[0]
+    eps = np.linspace(0, 0.9, 46)
+    NEps = len(eps)
+    nedges = np.zeros(NEps)
+    times = np.zeros(NEps)
+    intdists = np.zeros(NEps)
+    AllPDs = []
+    for i in range(len(eps)):    
+        (I, J, D) = makeComplex(X, eps[i])
+        nedges[i] = len(I)
+        tic = time.time()
+        PDs = getPDs(I, J, D, N, dim+2)
+        toc = time.time()
+        times[i] = toc - tic
+        AllPDs.append(PDs[dim])
+        if i > 0:
+            intdists[i] = getInterleavingDist(AllPDs[0], AllPDs[i])
+        plt.clf()
+        plot2DGMs(AllPDs[0], AllPDs[i], 'Original', 'eps=%g'%eps[i])
+        plt.title("%g%% Edges, dist = %g"%(float(nedges[i])/nedges[0]*100.0, intdists[i]))
+        plt.savefig("%i.png"%i, dpi=150, bbox_inches='tight')
+    #Make video
+    subprocess.call(["avconv", "-r", "2", "-i", "%%%s.png"%"d", "-r", "2", "-b", "30000k", "%s.ogg"%TestName])
+    
+    
+    #Now plot the results
+    plt.figure(figsize=(16, 16))
+    plt.subplot(221)
+    plt.plot(nedges, times)
+    plt.xlabel("Number of Edges")
+    plt.ylabel("Time (Seconds)")
+    plt.title("Runtimes")
+    
+    plt.subplot(222)
+    plt.plot(nedges, eps, 'b', label = 'eps')
+    plt.hold(True)
+    plt.plot(nedges, intdists, 'r', label = 'intdist')
+    plt.xlabel('Number of Edges')
+    plt.ylabel('Epsilon, Interleaving Dist')
+    plt.legend()
+    plt.title("Approximation Quality")
+    
+    ax = plt.subplot(223)
+    rg = [X.min() - 0.1, X.max() + 0.1]
+    if X.shape[1] == 2:
+        plt.plot(X[:, 0], X[:, 1], 'b.')
+        ax.set_xlim(rg[0], rg[1])
+        ax.set_ylim(rg[0], rg[1])
+    else:
+        mF = plt.gca(projection='3d')
+        mF.plot(X[:, 0], X[:, 1], X[:, 2], 'b.')
+        mF.set_xlim(rg[0], rg[1])
+        mF.set_ylim(rg[0], rg[1])
+        mF.set_zlim(rg[0], rg[1])
+    plt.title('Point Cloud')
+    
+    plt.subplot(224)
+    i = 10
+    plot2DGMs(AllPDs[0], AllPDs[i], 'Original', 'eps=%g'%eps[i])
+    plt.title("Example, %g%% Edges, IntDist = %g"%(float(nedges[i])/nedges[0]*100.0, intdists[i]))
+    plt.savefig("%s.png"%TestName, dpi=150, bbox_inches='tight')
+    #Clean up
+    for i in range(len(eps)):
+        os.remove("%i.png"%i)
+
+    
+if __name__ == '__main__':
+    np.random.seed(100)
+
+    X = getRandCircle(200)
+    X = X + 0.1*np.random.randn(200, 2)
+    doBatchTestsShape(X, 1, "Circle200Noisy")
+
+    X = getRandSphere(100)
+    doBatchTestsShape(X, 2, "Sphere100")
+        
