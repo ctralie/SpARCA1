@@ -1,3 +1,8 @@
+#Programmer: Chris Tralie
+#Purpose: To generate series of sparse complexes for different test point cloud and
+#to call Rann's pipeline to compute persistence diagrams.  Report diagrams, timings,
+#and interleaving distances, as computed by wrapping around Dionysus's bottleneck
+#distance binary
 import subprocess
 import os
 import numpy as np
@@ -111,7 +116,7 @@ def doRandCircleTest():
     plt.title('Persistence Diagram')
     plt.show()
 
-def doBatchTestsShape(X, dim, TestName):
+def doBatchTestsShape(X, dim, TestName, doIntDist = True):
     N = X.shape[0]
     eps = np.linspace(0, 0.9, 46)
     NEps = len(eps)
@@ -127,7 +132,7 @@ def doBatchTestsShape(X, dim, TestName):
         toc = time.time()
         times[i] = toc - tic
         AllPDs.append(PDs[dim])
-        if i > 0:
+        if i > 0 and doIntDist:
             intdists[i] = getInterleavingDist(AllPDs[0], AllPDs[i])
         plt.clf()
         plot2DGMs(AllPDs[0], AllPDs[i], 'Original', 'eps=%g'%eps[i])
@@ -182,9 +187,17 @@ if __name__ == '__main__':
     np.random.seed(100)
 
     X = getRandCircle(200)
-    X = X + 0.1*np.random.randn(200, 2)
+    X = X + 0.1*np.random.randn(200, 1)
     doBatchTestsShape(X, 1, "Circle200Noisy")
-
-    X = getRandSphere(100)
-    doBatchTestsShape(X, 2, "Sphere100")
+    
+    X = getFigure8(200)
+    X = X + 0.1*np.random.randn(200, 1)
+    doBatchTestsShape(X, 1, "Figure8Noisy")
+    
+    X = getRandSphere(200)
+    doBatchTestsShape(X, 2, "Sphere200")
+    
+    X = getRandTorus(300, 4, 2)
+    doBatchTestsShape(X, 1, "Torus300_H1")
+    doBatchTestsShape(X, 2, "Torus300_H2")
         

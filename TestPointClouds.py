@@ -1,3 +1,5 @@
+#Programmer: Chris Tralie
+#Purpose: To generate test point clouds
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -5,6 +7,14 @@ from mpl_toolkits.mplot3d import Axes3D
 def getRandCircle(N):
     X = np.random.randn(N, 2)
     X = X/np.sqrt(np.sum(X**2, 1))[:, None]
+    return X
+
+def getFigure8(N):
+    t = np.linspace(0, 2*np.pi, N+1)
+    t = t[0:N]
+    X = np.zeros((N, 2))
+    X[:, 0] = np.cos(t)
+    X[:, 1] = np.sin(2*t)
     return X
 
 def getRandSphere(N):
