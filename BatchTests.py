@@ -137,9 +137,9 @@ def doBatchTestsShape(X, dim, TestName, doIntDist = True):
         plt.clf()
         plot2DGMs(AllPDs[0], AllPDs[i], 'Original', 'eps=%g'%eps[i])
         plt.title("%g%% Edges, dist = %g"%(float(nedges[i])/nedges[0]*100.0, intdists[i]))
-        plt.savefig("%i.png"%i, dpi=150, bbox_inches='tight')
+        plt.savefig("%s%i.png"%(TestName, i), dpi=150, bbox_inches='tight')
     #Make video
-    subprocess.call(["avconv", "-r", "2", "-i", "%%%s.png"%"d", "-r", "2", "-b", "30000k", "%s.ogg"%TestName])
+    subprocess.call(["avconv", "-r", "2", "-i", "%s%%%s.png"%(TestName, "d"), "-r", "2", "-b", "30000k", "%s.ogg"%TestName])
     
     
     #Now plot the results
@@ -178,9 +178,6 @@ def doBatchTestsShape(X, dim, TestName, doIntDist = True):
     plot2DGMs(AllPDs[0], AllPDs[i], 'Original', 'eps=%g'%eps[i])
     plt.title("Example, %g%% Edges, IntDist = %g"%(float(nedges[i])/nedges[0]*100.0, intdists[i]))
     plt.savefig("%s.png"%TestName, dpi=150, bbox_inches='tight')
-    #Clean up
-    for i in range(len(eps)):
-        os.remove("%i.png"%i)
 
     
 if __name__ == '__main__':
