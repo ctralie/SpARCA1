@@ -3,14 +3,14 @@
 #Euclidean distance in pixel space
 import numpy as np
 import scipy.misc
+import scipy.io as sio
 import matplotlib.pyplot as plt
-from SparseEdgeList import *
-from BatchTests import *
+from TDA import *
 import sys
 
 if __name__ == '__main__':
-    if len(sys.argv) < 3:
-        print "Usage: python getPDsImageCollection.py <directory name> <num frames>"
+    if len(sys.argv) < 2:
+        print "Usage: python getPDsImageCollection.py <directory name>"
         sys.exit(0)
     dirName = sys.argv[1]
     N = int(sys.argv[2])
@@ -25,14 +25,19 @@ if __name__ == '__main__':
         I = scipy.misc.imread("%s/%i.png"%(dirName, i))
         X[i, :] = I.flatten()
     
+    XSqr = np.sum(X**2, 1)
+    D = XSqr[:, None] + XSqr[None, :] - 2*X.dot(X.T)
+    D[D < 0] = 0 #Numerical precision
+    D = np.sqrt(D)
+    sio.savemat("D.mat", {"D":D})
+    
+    
     #Step 2: Compute persistence diagrams
-    eps = 0
     print "Doing filtration..."
-    (I, J, D) = makeComplex(X, eps)
-    PDs = getPDs(I, J, D, N, 4)
-    plotDGM(PDs[1])
-    plt.title('1D Persistence Diagram')
-    plt.show()
-    plotDGM(PDs[2])
-    plt.title('2D Persistence Diagram')
+    PDs = doRipsFiltrationDM(D, 2)
+    plotDGM(PDs[1], color = 'b')
+    plt.hold(True)
+    plotDGM(PDs[2], color = 'r')
+#    plotDGM(PDs[3], color = 'k')
+    plt.title('Persistence Diagrams')
     plt.show()

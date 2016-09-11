@@ -1,3 +1,6 @@
 [submodule "S3DGLPy"]
 	path = S3DGLPy
 	url = https://github.com/ctralie/S3DGLPy.git
+[submodule "ripser"]
+	path = ripser
+	url = https://github.com/Ripser/ripser.git

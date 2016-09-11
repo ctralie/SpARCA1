@@ -11,6 +11,8 @@ from TestPointClouds import *
 from SparseEdgeList import *
 
 def plotDGM(dgm, color = 'b', sz = 20, label = 'dgm'):
+    if dgm.size == 0:
+        return
     # Create Lists
     X = list(zip(*dgm)[0]);
     Y = list(zip(*dgm)[1]);
@@ -24,7 +26,7 @@ def plotDGM(dgm, color = 'b', sz = 20, label = 'dgm'):
     # plot line
     plt.plot([axMin-axRange/5,axMax+axRange/5], [axMin-axRange/5, axMax+axRange/5],'k');
     # adjust axis
-    plt.axis([axMin-axRange/5,axMax+axRange/5, axMin-axRange/5, axMax+axRange/5])
+    #plt.axis([axMin-axRange/5,axMax+axRange/5, axMin-axRange/5, axMax+axRange/5])
     # add labels
     plt.xlabel('Time of Birth')
     plt.ylabel('Time of Death')
@@ -181,7 +183,7 @@ def doBatchTestsShape(X, dim, TestName, doIntDist = True):
 
     
 if __name__ == '__main__':
-    np.random.seed(100)
+    np.random.seed(100) #For repeatability
 
     X = getRandCircle(200)
     X = X + 0.1*np.random.randn(200, 1)

@@ -24,6 +24,16 @@ def getGreedyPerm(D):
         ds = np.minimum(ds, D[idx, :])
     return (perm, lambdas)
 
+#Purpose: Do a binary search to find an epsilon corresponding to
+#NEdges included edges
+def getEps(lambdaso, D, NEdges, eps1 = 0, eps2 = 1):
+    N = D.shape[0]
+    b1 = ((eps1**2+3*eps1+2)/eps1)*lambdaso
+    b2 = ((eps2**2+3*eps2+2)/eps2)*lambdaso
+    f1 = np.sum(D > b1)
+    f2 = np.sum(D > b2)
+    
+
 #Purpose: To return the sparse edge list with the warped distances, sorted
 #by weight
 #Inputs: lambdaso (insertion radii for points), eps (epsilon approximation constant),

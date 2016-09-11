@@ -2,15 +2,16 @@ addpath('BillsCode');
 addpath('PCExamples');
 NTHREADS=int32(4);
 
-A.theta=.5;
+A.theta=.9;
 A.numlevels=int32(20);
 A.minlevel=int32(0);
 A.NTHREADS=NTHREADS;
 A.BLOCKSIZE=int32(32);
 
-X = makeCircles();
+X = 10*makeCircles();
 X = X';
 N = size(X, 2);
+A.numlevels = int32(N);
 B = covertree(A, X);
 
 rootLevel = B.outparams(2);
@@ -18,7 +19,7 @@ rootLevel = B.outparams(2);
 colors = rand(N, 3);
 
 th = 0:0.1:2*pi+0.1;
-for ii = 1:10
+for ii = 1:max(B.levels(:, 1))-min(B.levels(:, 1))
     clf;
     level = ii + rootLevel - 1;
     RPack = B.radii(ii);
@@ -30,7 +31,7 @@ for ii = 1:10
     for jj = 1:length(centers)
         idx = centers{jj}(1);
         plot(X(1, idx) + RPack*cos(th), X(2, idx) + RPack*sin(th), 'b');
-        plot(X(1, idx) + RCover*cos(th), X(2, idx) + RCover*sin(th), 'r');
+        %plot(X(1, idx) + RCover*cos(th), X(2, idx) + RCover*sin(th), 'r');
         scatter(X(1, idx), X(2, idx), 20, colors(jj, :));
         plot(X(1, centers{jj}), X(2, centers{jj}), '.', 'color', colors(jj, :));
     end
